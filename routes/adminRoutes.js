@@ -6,12 +6,14 @@ const pool = require("../config/db");
 // Get all users
 router.get("/all-users", async (req, res) => {
   try {
+
     const result = await pool.query(
-      `SELECT id, full_name, email, phone_number, dob, country_code, gender, business_plan, reference_code, verified, vip, coin, created_at, status, pause_start
-FROM sign_up
-ORDER BY id ASC
-`
-    );
+  `SELECT id, full_name, email, phone_number, dob, country_code, gender, business_plan, reference_code, verified, coin, created_at, status, pause_start
+   FROM sign_up
+   ORDER BY id ASC`
+);
+
+
     res.json(result.rows);
   } catch (error) {
     console.error("Error fetching users:", error);
