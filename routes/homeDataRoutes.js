@@ -1,9 +1,10 @@
+// routes/homeDataRoutes.js
 const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const pool = require("../config/db");
-
+ 
 const router = express.Router();
 
 // Multer storage config

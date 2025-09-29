@@ -1,43 +1,55 @@
+// backend/controllers/otpController.js
 const pool = require("../config/db");
 const nodemailer = require("nodemailer");
+ 
 
 // Send OTP and save/update in DB
 exports.sendOtp = async (req, res) => {
   const { email, userData } = req.body;
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const cleanEmail = email.trim().toLowerCase();
+  const phone = userData.phone_number;
 
   try {
+    // 🔍 Check if email or phone already exists
     const checkUser = await pool.query(
-      `SELECT id, verified FROM sign_up WHERE LOWER(email) = $1`,
-      [cleanEmail]
+      `SELECT id, verified, email, phone_number 
+       FROM sign_up 
+       WHERE LOWER(email) = $1 OR phone_number = $2`,
+      [cleanEmail, phone]
     );
 
     if (checkUser.rows.length > 0) {
-      if (checkUser.rows[0].verified) {
-        return res.status(400).json({ success: false, message: "Email already registered" });
+      const existing = checkUser.rows[0];
+
+      if (existing.verified) {
+        return res
+          .status(400)
+          .json({ success: false, message: "Email or phone already registered & verified" });
       }
 
-      // If exists but not verified → update OTP & details
+      // If exists but not verified → update record
       await pool.query(
         `UPDATE sign_up
-         SET full_name = $1, dob = $2, country_code = $3, phone_number = $4, gender = $5, otp = $6
-         WHERE LOWER(email) = $7`,
+         SET full_name = $1, dob = $2, country_code = $3, phone_number = $4, gender = $5, password = $6, otp = $7
+         WHERE id = $8`,
         [
           userData.full_name,
           userData.dob,
           userData.country_code,
           userData.phone_number,
           userData.gender,
+          userData.password,
           otp,
-          cleanEmail
+          existing.id
         ]
       );
     } else {
       // Insert as pending user
       await pool.query(
-        `INSERT INTO sign_up (full_name, email, dob, country_code, phone_number, gender, otp, verified)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, false)`,
+        `INSERT INTO sign_up 
+           (full_name, email, dob, country_code, phone_number, gender, password, otp, verified) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)`,
         [
           userData.full_name,
           cleanEmail,
@@ -45,6 +57,7 @@ exports.sendOtp = async (req, res) => {
           userData.country_code,
           userData.phone_number,
           userData.gender,
+          userData.password,
           otp
         ]
       );
@@ -60,11 +73,45 @@ exports.sendOtp = async (req, res) => {
     });
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: "Your OTP Code",
-      text: `Your OTP is ${otp}`
-    });
+  from: process.env.EMAIL_USER,
+  to: email,
+  subject: "Welcome to Knowo 🎉 | Your OTP Code",
+  text: `
+Hi ${userData.full_name || "there"},
+
+Welcome to **Knowo**! 🚀  
+Here you can **play quizzes, earn rewards, and grow your knowledge** while making money.  
+
+Your One-Time Password (OTP) is:  
+👉 ${otp}
+
+Please use this code to complete your registration.
+
+Let’s get started and make learning fun!  
+- Team Knowo 💡
+  `,
+  html: `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+      <h2>Welcome to <span style="color:#4CAF50;">Knowo</span> 🎉</h2>
+      <p>Hi <strong>${userData.full_name || "there"}</strong>,</p>
+      <p>We’re excited to have you on board! Here at <strong>Knowo</strong>, you can:</p>
+      <ul>
+        <li>✅ Play quizzes</li>
+        <li>✅ Earn money</li>
+        <li>✅ Learn & grow with fun challenges</li>
+      </ul>
+      <p><strong>Your OTP code is:</strong></p>
+      <h1 style="background:#4CAF50;color:#fff;display:inline-block;padding:10px 20px;border-radius:5px;">
+        ${otp}
+      </h1>
+      <p>Please enter this code to verify your account.</p>
+      <br/>
+      <p>Let’s get started and make learning fun! 🚀</p>
+      <p>Cheers,<br/>Team Knowo 💡</p>
+    </div>
+  `
+});
+
 
     res.json({ success: true, message: "OTP sent to email" });
   } catch (err) {
@@ -73,6 +120,7 @@ exports.sendOtp = async (req, res) => {
   }
 };
 
+
 // Verify OTP and mark user as verified
 exports.verifyOtp = async (req, res) => {
   const { email, otp } = req.body;
@@ -80,7 +128,7 @@ exports.verifyOtp = async (req, res) => {
 
   try {
     const result = await pool.query(
-      `SELECT otp, verified FROM sign_up WHERE LOWER(email) = $1`,
+      `SELECT * FROM sign_up WHERE LOWER(email) = $1`,
       [cleanEmail]
     );
 
@@ -98,14 +146,33 @@ exports.verifyOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid OTP" });
     }
 
+    // ✅ Update verified status
     await pool.query(
       `UPDATE sign_up SET verified = true, otp = NULL WHERE LOWER(email) = $1`,
       [cleanEmail]
     );
 
-    res.json({ success: true, message: "OTP verified and account activated" });
+    // ✅ Fetch fresh user details (without password)
+    const updatedUser = await pool.query(
+      `SELECT 
+         id,
+         full_name AS "fullName",
+         email,
+         reference_code AS "referenceCode",
+         status
+       FROM sign_up 
+       WHERE LOWER(email) = $1`,
+      [cleanEmail]
+    );
+
+    res.json({
+      success: true,
+      message: "OTP verified and account activated",
+      user: updatedUser.rows[0]   // ✅ send user object back
+    });
   } catch (err) {
     console.error("Error verifying OTP:", err);
     res.status(500).json({ success: false, message: "Failed to verify OTP" });
   }
 };
+

@@ -1,6 +1,8 @@
 // controllers/quizController.js
 const pool = require("../config/db");
 
+const calculateCommission = require("../utils/commissionCalculator");
+ 
 // Add quiz
 exports.addQuiz = async (req, res) => {
   try {
@@ -21,7 +23,38 @@ exports.addQuiz = async (req, res) => {
     console.error("Error adding quiz:", err.message);
     res.status(500).json({ error: "Failed to add quiz" });
   }
+}; 
+
+// controllers/quizController.js
+exports.addVideo = async (req, res) => {
+  try {
+    const { title } = req.body;
+    let video_url = req.body.video_url;
+
+    // If a file is uploaded, override video_url with file path
+    if (req.file) {
+      video_url = `/uploads/${req.file.filename}`;
+    }
+
+    if (!title || !video_url) {
+      return res.status(400).json({ error: "Title and video (URL or file) required" });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO videos (title, video_url) VALUES ($1, $2) RETURNING *`,
+      [title, video_url]
+    );
+
+    res.status(201).json({
+      message: "Video added successfully",
+      video: result.rows[0],
+    });
+  } catch (err) {
+    console.error("❌ Error adding video:", err.message);
+    res.status(500).json({ error: "Failed to add video" });
+  }
 };
+
 
 // Get all quizzes
 exports.getQuizzes = async (req, res) => {
@@ -34,24 +67,65 @@ exports.getQuizzes = async (req, res) => {
   }
 };
 
-
-// Delete quiz
-exports.deleteQuiz = async (req, res) => {
+// Get quizzes + videos (supports admin flag)
+exports.getQuizWithVideos = async (req, res) => {
   try {
-    const { id } = req.params;
+    const isAdmin = req.query.admin === "true"; // admin? fetch all
 
-    const result = await pool.query("DELETE FROM quizzes WHERE id = $1 RETURNING *", [id]);
+    // Quizzes query
+    const quizQuery = isAdmin
+      ? "SELECT * FROM quizzes ORDER BY id ASC" // all quizzes
+      : "SELECT * FROM quizzes ORDER BY RANDOM() LIMIT 5"; // app limit
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: "Quiz not found" });
-    }
+    // Videos query
+    const videoQuery = isAdmin
+      ? "SELECT * FROM videos ORDER BY id ASC" // all videos
+      : "SELECT * FROM videos ORDER BY RANDOM() LIMIT 2"; // app limit
 
-    res.json({ message: "Quiz deleted successfully", quiz: result.rows[0] });
+    const quizzes = await pool.query(quizQuery);
+    const videos = await pool.query(videoQuery);
+
+    res.json({
+      success: true,
+      quizzes: quizzes.rows,
+      videos: videos.rows,
+    });
   } catch (err) {
-    console.error("Error deleting quiz:", err.message);
-    res.status(500).json({ error: "Failed to delete quiz" });
+    console.error("Error fetching quiz/videos:", err.message);
+    res.status(500).json({ success: false, message: "Failed to fetch data" });
   }
 };
+
+// Delete quiz or video
+exports.deleteItem = async (req, res) => {
+  try {
+    const { id, type } = req.params; // type = "quiz" or "video"
+
+    if (!id || !type) {
+      return res.status(400).json({ error: "Missing id or type" });
+    }
+
+    let tableName = "";
+    if (type === "quiz") tableName = "quizzes";
+    else if (type === "video") tableName = "videos";
+    else return res.status(400).json({ error: "Invalid type" });
+
+    const result = await pool.query(
+      `DELETE FROM ${tableName} WHERE id = $1 RETURNING *`,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: `${type} not found` });
+    }
+
+    res.json({ message: `${type} deleted successfully`, item: result.rows[0] });
+  } catch (err) {
+    console.error(`Error deleting ${req.params.type}:`, err.message);
+    res.status(500).json({ error: "Failed to delete item" });
+  }
+};
+
 
 exports.getCoins = async (req, res) => {
   try {
@@ -80,42 +154,73 @@ exports.getCoins = async (req, res) => {
   }
 };
 
+
+// ✅ Update Coins
 exports.updateCoins = async (req, res) => {
   try {
-    let { userId, commission } = req.body;
+    const { userId, score = 0, videosWatched = 0 } = req.body;
 
-    console.log("👉 Received body:", req.body); // DEBUG LOG
-
-    if (!userId || commission === undefined) {
-      return res.status(400).json({ success: false, message: "Missing parameters" });
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "Missing userId" });
     }
 
-    commission = parseFloat(commission);
-    if (isNaN(commission)) {
-      return res.status(400).json({ success: false, message: "Invalid commission value" });
-    }
+    // 1. Fetch user info
+    const userQuery = `
+      SELECT business_plan, COALESCE(day_count, 0) AS day_count, COALESCE(coin, 0) AS coin
+      FROM sign_up 
+      WHERE id = $1
+    `;
+    const { rows, rowCount } = await pool.query(userQuery, [userId]);
 
-    const result = await pool.query(
-      `UPDATE sign_up 
-       SET coin = COALESCE(coin, 0) + $1 
-       WHERE id = $2 
-       RETURNING id, coin`,
-      [commission, userId]
-    );
-
-    if (result.rowCount === 0) {
+    if (rowCount === 0) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    let { business_plan, day_count, coin } = rows[0];
+
+    // ✅ Make sure coin is a number
+    coin = parseFloat(coin) || 0;
+
+    // 2. Calculate commission
+    const commission = calculateCommission(business_plan, day_count, score, videosWatched);
+
+    // 3. Decide whether to decrement day_count
+    const shouldDecrement = business_plan !== "Bronze" && day_count > 0;
+
+    // 4. Update database
+    const updateQuery = `
+      UPDATE sign_up
+      SET 
+        coin = $1,
+        day_count = CASE WHEN $2 THEN day_count - 1 ELSE day_count END
+      WHERE id = $3
+      RETURNING id, coin, day_count, business_plan
+    `;
+
+    const updated = await pool.query(updateQuery, [coin + commission, shouldDecrement, userId]);
+
+    // ✅ Ensure response numbers are floats
     res.json({
-      success: true,
-      message: "Coins updated successfully",
-      newBalance: result.rows[0].coin,
-    });
+  success: true,
+  message: "Coins updated successfully",
+  commission: Number(commission), // force number
+  newBalance: Number(updated.rows[0].coin),
+  day_count: Number(updated.rows[0].day_count),
+  business_plan: updated.rows[0].business_plan,
+});
+
+
   } catch (err) {
-    console.error("❌ Coin update error:", err);
+    console.error("❌ Coin update error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
+
+
+
+
+
+
 
 

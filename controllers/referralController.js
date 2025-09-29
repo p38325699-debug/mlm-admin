@@ -10,7 +10,7 @@ exports.getReferralCode = async (req, res) => {
       "SELECT reference_code FROM sign_up WHERE id = $1",
       [id]
     );
-
+  
     if (result.rows.length === 0) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -21,3 +21,4 @@ exports.getReferralCode = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+ 

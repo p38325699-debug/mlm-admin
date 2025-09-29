@@ -2,19 +2,38 @@
 const express = require("express");
 const router = express.Router();
 const quizController = require("../controllers/quizController");
+const multer = require("multer");
+const path = require("path");
 
-// Add new quiz
+// Configure storage
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => 
+    cb(null, Date.now() + path.extname(file.originalname)),
+});
+
+const upload = multer({ storage });
+
+// Quiz routes
 router.post("/quizzes", quizController.addQuiz);
-
-// Get all quizzes
 router.get("/quizzes", quizController.getQuizzes);
+router.delete("/quizzes/:id", (req, res) => {
+  req.params.type = "quiz";
+  quizController.deleteItem(req, res);
+});
+ 
+// Video routes
+router.post("/videos", upload.single("videoFile"), quizController.addVideo); // <-- updated
+router.delete("/videos/:id", (req, res) => {
+  req.params.type = "video";
+  quizController.deleteItem(req, res);
+});
 
-// Delete a quiz
-router.delete("/quizzes/:id", quizController.deleteQuiz);
+// Admin: fetch quizzes + videos
+router.get("/quiz-with-videos", quizController.getQuizWithVideos);
 
-// ✅ Coins
+// Coins
+router.get("/coins/:userId", quizController.getCoins);
 router.post("/update-coins", quizController.updateCoins);
-router.get("/get-coins/:userId", quizController.getCoins);
 
 module.exports = router;
- 
