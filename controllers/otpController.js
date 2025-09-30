@@ -1,11 +1,11 @@
 // backend/controllers/otpController.js
 const pool = require("../config/db");
 const sgMail = require("@sendgrid/mail");
-const { Resend } = require('resend'); // ✅ ADD THIS LINE
+const { Resend } = require('resend');
 
 // Initialize SendGrid with API Key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-const resend = new Resend(process.env.RESEND_API_KEY); // ✅ ADD THIS LINE
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ==============================
 // Send OTP and save/update in DB
@@ -69,32 +69,26 @@ exports.sendOtp = async (req, res) => {
       );
     }
 
-    // ✅✅✅ REPLACE ONLY THIS BLOCK - START
-    // 📧 Send OTP via Resend (works on Render)
-    const { data, error } = await resend.emails.send({
-      from: '700aditi@gmail.com',
-      to: email,
-      subject: "Your OTP Verification Code",
-      html: `
-        <div style="font-family: Arial, sans-serif; text-align: center;">
-          <h2>Email Verification</h2>
-          <p>Your OTP code is:</p>
-          <h1 style="font-size: 32px; color: #2563eb; letter-spacing: 5px;">${otp}</h1>
-          <p>This code will expire in 10 minutes.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        </div>
-      `
+    // ✅✅✅ TEMPORARY FIX - REPLACE THE ENTIRE BLOCK WITH THIS:
+    console.log(`📧 DEVELOPMENT MODE: OTP for ${email} is ${otp}`);
+    console.log(`📧 In production, this would be sent via email to ${email}`);
+
+    // For now, just log the OTP and return success
+    // This allows your app to work while you set up a proper email service
+    console.log(`🚀 OTP ${otp} generated for ${email} - Email sending disabled in development`);
+
+    // ✅✅✅ REMOVE THE DUPLICATE res.json() LINE BELOW!
+    res.json({ 
+      success: true, 
+      message: "OTP generated successfully (development mode - check server logs)",
+      debug_otp: otp // Remove this line in production
     });
+    return;
+    // ✅✅✅ END OF TEMPORARY FIX
 
-    if (error) {
-      console.error('Resend error:', error);
-      throw new Error('Failed to send OTP email');
-    }
+    // ❌❌❌ DELETE THIS DUPLICATE LINE - IT CAUSES ERRORS!
+    // res.json({ success: true, message: "OTP sent to email" });
     
-    console.log('OTP sent successfully via Resend to:', email);
-    // ✅✅✅ REPLACE ONLY THIS BLOCK - END
-
-    res.json({ success: true, message: "OTP sent to email" });
   } catch (err) {
     console.error("Error sending OTP:", err);
     res.status(500).json({
