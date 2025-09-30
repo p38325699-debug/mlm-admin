@@ -1,7 +1,6 @@
 // backend/controllers/otpController.js
 const pool = require("../config/db");
 const nodemailer = require("nodemailer");
- 
 
 // Send OTP and save/update in DB
 exports.sendOtp = async (req, res) => {
@@ -28,11 +27,10 @@ exports.sendOtp = async (req, res) => {
           .json({ success: false, message: "Email or phone already registered & verified" });
       }
 
-      // ✅ If exists but not verified → update record with new OTP
+      // If exists but not verified → update record
       await pool.query(
         `UPDATE sign_up
-         SET full_name = $1, dob = $2, country_code = $3, phone_number = $4, 
-             gender = $5, password = $6, otp = $7
+         SET full_name = $1, dob = $2, country_code = $3, phone_number = $4, gender = $5, password = $6, otp = $7
          WHERE id = $8`,
         [
           userData.full_name,
@@ -46,11 +44,11 @@ exports.sendOtp = async (req, res) => {
         ]
       );
     } else {
-      // ✅ Insert as pending user
+      // Insert as pending user
       await pool.query(
         `INSERT INTO sign_up 
            (full_name, email, dob, country_code, phone_number, gender, password, otp, verified) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false)`,
         [
           userData.full_name,
           cleanEmail,
@@ -59,8 +57,7 @@ exports.sendOtp = async (req, res) => {
           userData.phone_number,
           userData.gender,
           userData.password,
-          otp,
-          false
+          otp
         ]
       );
     }
@@ -77,19 +74,8 @@ exports.sendOtp = async (req, res) => {
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to: email,
-      subject: "Welcome to Knowo 🎉 | Your OTP Code",
-      html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-          <h2>Welcome to <span style="color:#4CAF50;">Knowo</span> 🎉</h2>
-          <p>Hi <strong>${userData.full_name || "there"}</strong>,</p>
-          <p>Your OTP code is:</p>
-          <h1 style="background:#4CAF50;color:#fff;display:inline-block;padding:10px 20px;border-radius:5px;">
-            ${otp}
-          </h1>
-          <p>Please enter this code to verify your account.</p>
-          <p>Cheers,<br/>Team Knowo 💡</p>
-        </div>
-      `
+      subject: "Your OTP Code",
+      text: `Your OTP is ${otp}`
     });
 
     res.json({ success: true, message: "OTP sent to email" });
@@ -98,7 +84,6 @@ exports.sendOtp = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to send OTP" });
   }
 };
-
 
 
 // Verify OTP and mark user as verified
