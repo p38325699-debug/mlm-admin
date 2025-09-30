@@ -2,6 +2,10 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
+console.log("🔑 SENDGRID_API_KEY:", process.env.SENDGRID_API_KEY ? "Loaded ✅" : "Missing ❌");
+console.log("📧 EMAIL_FROM:", process.env.EMAIL_FROM);
+
+
 const isProduction = process.env.NODE_ENV === "production";
 
 const pool = new Pool({
