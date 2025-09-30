@@ -1,9 +1,11 @@
 // backend/controllers/otpController.js
 const pool = require("../config/db");
 const sgMail = require("@sendgrid/mail");
+const { Resend } = require('resend'); // ✅ ADD THIS LINE
 
 // Initialize SendGrid with API Key
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+const resend = new Resend(process.env.RESEND_API_KEY); // ✅ ADD THIS LINE
 
 // ==============================
 // Send OTP and save/update in DB
@@ -67,15 +69,30 @@ exports.sendOtp = async (req, res) => {
       );
     }
 
-    // 📧 Send OTP via SendGrid
-    const msg = {
+    // ✅✅✅ REPLACE ONLY THIS BLOCK - START
+    // 📧 Send OTP via Resend (works on Render)
+    const { data, error } = await resend.emails.send({
+      from: 'onboarding@resend.dev',
       to: email,
-      from: process.env.EMAIL_FROM, // must be verified in SendGrid
-      subject: "Your OTP Code",
-      text: `Your OTP is ${otp}`,
-    };
+      subject: "Your OTP Verification Code",
+      html: `
+        <div style="font-family: Arial, sans-serif; text-align: center;">
+          <h2>Email Verification</h2>
+          <p>Your OTP code is:</p>
+          <h1 style="font-size: 32px; color: #2563eb; letter-spacing: 5px;">${otp}</h1>
+          <p>This code will expire in 10 minutes.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+        </div>
+      `
+    });
 
-    await sgMail.send(msg);
+    if (error) {
+      console.error('Resend error:', error);
+      throw new Error('Failed to send OTP email');
+    }
+    
+    console.log('OTP sent successfully via Resend to:', email);
+    // ✅✅✅ REPLACE ONLY THIS BLOCK - END
 
     res.json({ success: true, message: "OTP sent to email" });
   } catch (err) {
