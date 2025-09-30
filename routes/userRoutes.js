@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
+const nodemailer = require("nodemailer");
 const { getUserDetails } = require("../controllers/userController");
 
 // ✅ Test route
@@ -311,7 +312,34 @@ router.get("/:id/check-ref", async (req, res) => {
 // ✅ Test route to fetch user details by ID
 router.get("/:id/details", getUserDetails);
 
-module.exports = router;
+router.get("/test-email", async (req, res) => {
+  try {
+    const transporter = nodemailer.createTransport({
+      host: "smtp.gmail.com",
+      port: 465,
+      secure: true, // use SSL
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: process.env.EMAIL_USER, // send to yourself
+      subject: "Test Email",
+      text: "If you see this → Gmail setup works ✅",
+    });
+
+    res.json({ success: true, message: "Test email sent" });
+  } catch (err) {
+    console.error("Error in /test-email:", err.message);
+    if (err.response) console.error("SMTP Response:", err.response);
+    console.error("Full Error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 
 
 module.exports = router;

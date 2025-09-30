@@ -89,10 +89,16 @@ exports.sendOtp = async (req, res) => {
     });
 
     res.json({ success: true, message: "OTP sent to email" });
-  } catch (err) {
-    console.error("Error sending OTP:", err);
-    res.status(500).json({ success: false, message: "Failed to send OTP" });
-  }
+} catch (err) {
+  console.error("Error sending OTP:", err.message);
+  if (err.response) console.error("SMTP Response:", err.response);
+  console.error("Full Error:", err);
+  res.status(500).json({
+    success: false,
+    message: "Failed to send OTP",
+    error: err.message,
+  });
+}
 };
 
 
