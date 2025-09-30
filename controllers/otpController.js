@@ -72,7 +72,7 @@ exports.sendOtp = async (req, res) => {
     // ✅✅✅ REPLACE ONLY THIS BLOCK - START
     // 📧 Send OTP via Resend (works on Render)
     const { data, error } = await resend.emails.send({
-      from: 'onboarding@resend.dev',
+      from: '700aditi@gmail.com',
       to: email,
       subject: "Your OTP Verification Code",
       html: `
