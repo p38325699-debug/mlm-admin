@@ -1,8 +1,13 @@
 // backend/controllers/otpController.js
 const pool = require("../config/db");
-const nodemailer = require("nodemailer");
+const sgMail = require("@sendgrid/mail");
 
+// Initialize SendGrid with API Key
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+
+// ==============================
 // Send OTP and save/update in DB
+// ==============================
 exports.sendOtp = async (req, res) => {
   const { email, userData } = req.body;
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -62,47 +67,30 @@ exports.sendOtp = async (req, res) => {
       );
     }
 
-    // Send OTP via email
-    // const transporter = nodemailer.createTransport({
-    //   service: "gmail",
-    //   auth: {
-    //     user: process.env.EMAIL_USER,
-    //     pass: process.env.EMAIL_PASS
-    //   }
-    // });
-
-    const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 465,
-  secure: true, // SSL
-  auth: {
-    user: process.env.EMAIL_USER, // Gmail address
-    pass: process.env.EMAIL_PASS, // App password
-  },
-});
-
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+    // 📧 Send OTP via SendGrid
+    const msg = {
       to: email,
+      from: process.env.EMAIL_FROM, // must be verified in SendGrid
       subject: "Your OTP Code",
-      text: `Your OTP is ${otp}`
-    });
+      text: `Your OTP is ${otp}`,
+    };
+
+    await sgMail.send(msg);
 
     res.json({ success: true, message: "OTP sent to email" });
-} catch (err) {
-  console.error("Error sending OTP:", err.message);
-  if (err.response) console.error("SMTP Response:", err.response);
-  console.error("Full Error:", err);
-  res.status(500).json({
-    success: false,
-    message: "Failed to send OTP",
-    error: err.message,
-  });
-}
+  } catch (err) {
+    console.error("Error sending OTP:", err);
+    res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+      error: err.message,
+    });
+  }
 };
 
-
+// ==================================
 // Verify OTP and mark user as verified
+// ==================================
 exports.verifyOtp = async (req, res) => {
   const { email, otp } = req.body;
   const cleanEmail = email.trim().toLowerCase();
@@ -149,11 +137,10 @@ exports.verifyOtp = async (req, res) => {
     res.json({
       success: true,
       message: "OTP verified and account activated",
-      user: updatedUser.rows[0]   // ✅ send user object back
+      user: updatedUser.rows[0],
     });
   } catch (err) {
     console.error("Error verifying OTP:", err);
     res.status(500).json({ success: false, message: "Failed to verify OTP" });
   }
 };
-
