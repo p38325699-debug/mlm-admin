@@ -19,7 +19,16 @@ const notificationRoutes = require("./routes/notificationRoutes");
 const app = express();
  
 // Middleware
-app.use(cors());
+// app.use(cors());
+
+app.use(cors({
+  origin: [
+    'https://knowo.world',
+    'https://www.knowo.world',
+    'https://mlm-admin.onrender.com'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
