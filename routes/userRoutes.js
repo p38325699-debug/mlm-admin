@@ -317,16 +317,15 @@ router.get("/:id/details", getUserDetails);
 router.get("/test-email", async (req, res) => {
   try {
     const { data, error } = await resend.emails.send({
-      from: 'Knowo World <support@knowo.world>',
-      to: 'support@knowo.world', // Change to any email you want to test
+      from: 'onboarding@resend.dev', // ✅ Use Resend's verified domain
+      to: 'support@knowo.world', // Your email
       subject: 'Test Email from Resend - Knowo World',
       html: `
         <div style="font-family: Arial, sans-serif; padding: 20px;">
           <h2 style="color: #333;">✅ Test Email Successful!</h2>
           <p>This is a test email from your Knowo World application.</p>
+          <p><strong>Domain verification pending for knowo.world</strong></p>
           <p><strong>Server Time:</strong> ${new Date().toString()}</p>
-          <p><strong>Domain:</strong> knowo.world</p>
-          <p>If you received this, Resend is working perfectly! 🚀</p>
         </div>
       `
     });
