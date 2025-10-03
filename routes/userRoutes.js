@@ -2,7 +2,9 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
-const nodemailer = require("nodemailer");
+// const nodemailer = require("nodemailer");
+const { Resend } = require("resend"); // ✅ ADD THIS LINE
+const resend = new Resend(process.env.RESEND_API_KEY);
 const { getUserDetails } = require("../controllers/userController");
 
 // ✅ Test route
@@ -314,32 +316,44 @@ router.get("/:id/details", getUserDetails);
 
 router.get("/test-email", async (req, res) => {
   try {
-    const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true, // use SSL
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+    const { data, error } = await resend.emails.send({
+      from: 'Knowo World <support@knowo.world>',
+      to: 'support@knowo.world', // Change to any email you want to test
+      subject: 'Test Email from Resend - Knowo World',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #333;">✅ Test Email Successful!</h2>
+          <p>This is a test email from your Knowo World application.</p>
+          <p><strong>Server Time:</strong> ${new Date().toString()}</p>
+          <p><strong>Domain:</strong> knowo.world</p>
+          <p>If you received this, Resend is working perfectly! 🚀</p>
+        </div>
+      `
     });
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: process.env.EMAIL_USER, // send to yourself
-      subject: "Test Email",
-      text: "If you see this → Gmail setup works ✅",
-    });
+    if (error) {
+      console.error("Resend error:", error);
+      return res.status(500).json({ 
+        success: false, 
+        message: "Failed to send test email",
+        error: error.message 
+      });
+    }
 
-    res.json({ success: true, message: "Test email sent" });
+    res.json({ 
+      success: true, 
+      message: "Test email sent successfully via Resend!",
+      emailId: data.id,
+      timestamp: new Date().toISOString()
+    });
   } catch (err) {
     console.error("Error in /test-email:", err.message);
-    if (err.response) console.error("SMTP Response:", err.response);
-    console.error("Full Error:", err);
-    res.status(500).json({ success: false, error: err.message });
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error",
+      error: err.message 
+    });
   }
 });
-
-
 
 module.exports = router;
