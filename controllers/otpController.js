@@ -1,15 +1,11 @@
 // backend/controllers/otpController.js
 const pool = require("../config/db");
-const sgMail = require("@sendgrid/mail");
-const { Resend } = require('resend');
+// const nodemailer = require("nodemailer");
+const { Resend } = require("resend"); // Add Resend
 
-// Initialize SendGrid with API Key
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ==============================
 // Send OTP and save/update in DB
-// ==============================
 exports.sendOtp = async (req, res) => {
   const { email, userData } = req.body;
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -69,28 +65,40 @@ exports.sendOtp = async (req, res) => {
       );
     }
 
-    // ✅✅✅ TEMPORARY FIX - REPLACE THE ENTIRE BLOCK WITH THIS:
-    console.log(`📧 DEVELOPMENT MODE: OTP for ${email} is ${otp}`);
-    console.log(`📧 In production, this would be sent via email to ${email}`);
-
-    // For now, just log the OTP and return success
-    // This allows your app to work while you set up a proper email service
-    console.log(`🚀 OTP ${otp} generated for ${email} - Email sending disabled in development`);
-
-    // ✅✅✅ REMOVE THE DUPLICATE res.json() LINE BELOW!
-    res.json({ 
-      success: true, 
-      message: "OTP generated successfully (development mode - check server logs)",
-      debug_otp: otp // Remove this line in production
+    // ✅ REPLACE NODEMAILER WITH RESEND
+    const { data, error } = await resend.emails.send({
+      from: 'Knowo World <support@knowo.world>',
+      to: email,
+      subject: 'Your OTP Code - Knowo World',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Knowo World</h2>
+          <p>Your OTP code for verification is:</p>
+          <div style="background: #f4f4f4; padding: 15px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+            ${otp}
+          </div>
+          <p>This OTP will expire in 10 minutes.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="color: #666; font-size: 12px;">Knowo World Team</p>
+        </div>
+      `
     });
-    return;
-    // ✅✅✅ END OF TEMPORARY FIX
 
-    // ❌❌❌ DELETE THIS DUPLICATE LINE - IT CAUSES ERRORS!
-    // res.json({ success: true, message: "OTP sent to email" });
-    
+    if (error) {
+      console.error("Resend error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send OTP email",
+        error: error.message
+      });
+    }
+
+    console.log("Email sent successfully:", data);
+    res.json({ success: true, message: "OTP sent to email" });
+
   } catch (err) {
-    console.error("Error sending OTP:", err);
+    console.error("Error sending OTP:", err.message);
     res.status(500).json({
       success: false,
       message: "Failed to send OTP",
@@ -99,9 +107,7 @@ exports.sendOtp = async (req, res) => {
   }
 };
 
-// ==================================
 // Verify OTP and mark user as verified
-// ==================================
 exports.verifyOtp = async (req, res) => {
   const { email, otp } = req.body;
   const cleanEmail = email.trim().toLowerCase();
@@ -148,7 +154,7 @@ exports.verifyOtp = async (req, res) => {
     res.json({
       success: true,
       message: "OTP verified and account activated",
-      user: updatedUser.rows[0],
+      user: updatedUser.rows[0]   // ✅ send user object back
     });
   } catch (err) {
     console.error("Error verifying OTP:", err);
