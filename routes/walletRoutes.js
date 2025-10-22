@@ -56,6 +56,14 @@ router.post("/wallet-topup", upload.single('screenshot'), async (req, res) => {
     console.log("🟡 File received:", req.file ? `Yes - ${req.file.originalname}` : 'No');
 
     const { user_id, amount, method, utr_number } = req.body;
+    
+  if (method && method.toUpperCase() === "CRYPTO" && parseFloat(amount) < 6) {
+    return res.status(400).json({
+      success: false,
+      message: "Minimum crypto top-up amount is $6"
+    });
+  }
+
     const screenshot = req.file ? req.file.buffer : null;
 
     // Validate required fields
@@ -250,69 +258,69 @@ router.get("/wallet/user/:userId", async (req, res) => {
   }
 });
 
-// ✅ Create wallet popup
-router.post("/wallet-popup", async (req, res) => {
-  try {
-    const { user_id, amount, message } = req.body;
+// // ✅ Create wallet popup
+// router.post("/wallet-popup", async (req, res) => {
+//   try {
+//     const { user_id, amount, message } = req.body;
 
-    // Basic validation
-    if (!user_id || !amount || !message) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
-    }
-    if (amount < 50) {
-      return res.status(400).json({ success: false, message: "Amount must be at least $50" });
-    }
+//     // Basic validation
+//     if (!user_id || !amount || !message) {
+//       return res.status(400).json({ success: false, message: "Missing required fields" });
+//     }
+//     if (amount < 50) {
+//       return res.status(400).json({ success: false, message: "Amount must be at least $50" });
+//     }
 
-    const result = await pool.query(
-      `INSERT INTO wallet_popups (user_id, amount, message)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [user_id, amount, message]
-    );
+//     const result = await pool.query(
+//       `INSERT INTO wallet_popups (user_id, amount, message)
+//        VALUES ($1, $2, $3) RETURNING *`,
+//       [user_id, amount, message]
+//     );
 
-    res.json({ success: true, data: result.rows[0], message: "Popup created successfully" });
-  } catch (err) {
-    console.error("💥 Wallet Popup Error:", err.message);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
-
-
-// ✅ Get all pending popups for user
-router.get("/wallet-popup/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
-
-    const result = await pool.query(
-      `SELECT * FROM wallet_popups
-       WHERE user_id = $1 AND done = FALSE
-       ORDER BY created_at DESC`,
-      [userId]
-    );
-
-    res.json({ success: true, data: result.rows });
-  } catch (err) {
-    console.error("💥 Fetch Popup Error:", err.message);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
+//     res.json({ success: true, data: result.rows[0], message: "Popup created successfully" });
+//   } catch (err) {
+//     console.error("💥 Wallet Popup Error:", err.message);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
 
 
-// ✅ Mark popup as done
-router.put("/wallet-popup/done/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
+// // ✅ Get all pending popups for user
+// router.get("/wallet-popup/:userId", async (req, res) => {
+//   try {
+//     const { userId } = req.params;
 
-    await pool.query(
-      `UPDATE wallet_popups SET done = TRUE WHERE id = $1`,
-      [id]
-    );
+//     const result = await pool.query(
+//       `SELECT * FROM wallet_popups
+//        WHERE user_id = $1 AND done = FALSE
+//        ORDER BY created_at DESC`,
+//       [userId]
+//     );
 
-    res.json({ success: true, message: "Popup marked as done" });
-  } catch (err) {
-    console.error("💥 Update Popup Error:", err.message);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
+//     res.json({ success: true, data: result.rows });
+//   } catch (err) {
+//     console.error("💥 Fetch Popup Error:", err.message);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+
+// // ✅ Mark popup as done
+// router.put("/wallet-popup/done/:id", async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     await pool.query(
+//       `UPDATE wallet_popups SET done = TRUE WHERE id = $1`,
+//       [id]
+//     );
+
+//     res.json({ success: true, message: "Popup marked as done" });
+//   } catch (err) {
+//     console.error("💥 Update Popup Error:", err.message);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
 
 // POST /api/wallet-withdrawal
 router.post("/wallet-withdrawal", async (req, res) => {

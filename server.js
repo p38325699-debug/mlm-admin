@@ -31,14 +31,24 @@ const app = express();
 // app.use(cors());
 
 app.use(cors({
-  origin: [
-    'http://localhost:5173',       // ✅ allow local dev frontend
-    'https://knowo.world',
-    'https://www.knowo.world',
-    'https://mlm-admin.onrender.com'
-  ],
-  credentials: true
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'https://knowo.world',
+      'https://www.knowo.world',
+      'https://mlm-admin.onrender.com'
+    ];
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Not allowed by CORS: ${origin}`));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true,
 }));
+
 
 // Add this middleware in server.js after CORS setup
 app.use((req, res, next) => {
