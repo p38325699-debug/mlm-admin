@@ -15,12 +15,45 @@ const paymentRoutes = require("./routes/paymentRoutes");
 const coinRoutes = require("./routes/coinRoutes");
 const planRoutes = require("./routes/planRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
+const upiRoutes = require("./routes/upiRoutes");
+const walletRoutes = require("./routes/walletRoutes");
+const dashboardRoutes = require("./routes/dashboard"); 
+const cryptoRoutes = require("./routes/cryptoRoutes");
+const contactRoutes = require("./routes/contactRoutes");
+
+require("./cronJobs/cleanup");
+require("./cronJobs/unverifyIfNoMpin");
+
 
 const app = express();
- 
+  
 // Middleware
-app.use(cors());
-app.use(express.json());
+// app.use(cors());
+
+app.use(cors({
+  origin: [
+    'http://localhost:5173',       // ✅ allow local dev frontend
+    'https://knowo.world',
+    'https://www.knowo.world',
+    'https://mlm-admin.onrender.com'
+  ],
+  credentials: true
+}));
+
+// Add this middleware in server.js after CORS setup
+app.use((req, res, next) => {
+  const userAgent = req.headers['user-agent'] || '';
+  const isBrowser = /mozilla|chrome|safari|firefox|edge|opera/i.test(userAgent.toLowerCase());
+  
+  req.isBrowserRequest = isBrowser;
+  next();
+});
+
+// ✅ increase payload limit to handle large images
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 
@@ -43,6 +76,12 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api", coinRoutes);
 app.use("/api/plan", planRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api", upiRoutes);
+app.use("/api", walletRoutes);
+app.use("/api", cryptoRoutes);
+app.use("/api", contactRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+
 
 
 // Start server
@@ -50,6 +89,10 @@ const PORT = process.env.PORT || 5000;
 
 // Start background jobs
 require("./cronJobs/dayCountDecrement");
+require("./cronJobs/cleanup"); 
+require("./cronJobs/dailyQuizInit");
+require("./cronJobs/monthlyDeduction");      
+require("./cronJobs/maintenanceReminder"); 
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

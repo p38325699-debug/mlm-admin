@@ -2,10 +2,6 @@
 const { Pool } = require("pg");
 require("dotenv").config();
 
-console.log("🔑 RESEND_API_KEY:", process.env.RESEND_API_KEY ? "Loaded ✅" : "Missing ❌");
-// console.log("📧 EMAIL_FROM:", process.env.EMAIL_FROM); // Remove or comment this line
-
-
 const isProduction = process.env.NODE_ENV === "production";
 
 const pool = new Pool({

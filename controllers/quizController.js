@@ -54,7 +54,7 @@ exports.addVideo = async (req, res) => {
     res.status(500).json({ error: "Failed to add video" });
   }
 };
-
+ 
 
 // Get all quizzes
 exports.getQuizzes = async (req, res) => {
@@ -216,11 +216,96 @@ exports.updateCoins = async (req, res) => {
   }
 };
 
+// ✅ Store or update daily quiz history
+exports.saveQuizHistory = async (req, res) => {
+  try {
+    const { userId, score, correctAnswers, creditAmount } = req.body;
+    const finalScore = Number(score) + 2; // always add +2
 
+    if (!userId) {
+      return res.status(400).json({ success: false, message: "Missing userId" });
+    }
 
+    const today = new Date().toISOString().split("T")[0];
 
+    const query = `
+      INSERT INTO quiz_history (user_id, quiz_date, score, correct_answers, credit_amount)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (user_id, quiz_date)
+      DO UPDATE SET
+        score = EXCLUDED.score,
+        correct_answers = EXCLUDED.correct_answers,
+        credit_amount = EXCLUDED.credit_amount,
+        created_at = NOW()
+      RETURNING *;
+    `;
 
+    const result = await pool.query(query, [
+      userId,
+      today,
+      finalScore, // ✅ use finalScore instead of score
+      correctAnswers,
+      creditAmount,
+    ]);
 
+    res.json({
+      success: true,
+      message: "Quiz history saved",
+      data: result.rows[0],
+    });
+  } catch (err) { 
+    console.error("❌ Error saving quiz history:", err.message);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+ 
 
+// ✅ Fetch today’s quiz history (to check if already played)
+exports.getTodayQuizHistory = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const today = new Date().toISOString().split("T")[0];
 
+    const result = await pool.query(
+      `SELECT * FROM quiz_history WHERE user_id = $1 AND quiz_date = $2`,
+      [userId, today]
+    );
 
+    if (result.rowCount > 0) {
+      res.json({ success: true, data: result.rows[0] });
+    } else {
+     res.json({
+        success: true,
+        data: {
+          user_id: userId,
+          quiz_date: today,
+          score: 0,
+          correct_answers: 0,
+          credit_amount: 0.00
+        }
+      });
+    }
+  } catch (err) {
+    console.error("❌ Error fetching quiz history:", err.message);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ✅ Clean up old history (90+ days)
+exports.cleanupOldQuizHistory = async (req, res) => {
+  try {
+    const result = await pool.query(`
+      DELETE FROM quiz_history WHERE quiz_date < CURRENT_DATE - INTERVAL '90 days'
+      RETURNING *;
+    `);
+
+    res.json({
+      success: true,
+      deleted: result.rowCount,
+      message: `Deleted ${result.rowCount} old quiz records`,
+    });
+  } catch (err) {
+    console.error("❌ Cleanup error:", err.message);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};

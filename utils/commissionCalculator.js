@@ -5,17 +5,18 @@ function calculateCommission(
   score = 0,
   videosWatched = 0
 ) {
-  // Ensure numeric
+  // Convert safely
   const scoreNum = Number(score) || 0;
   const videosNum = Number(videosWatched) || 0;
+  const days = Number(day_count) || 0;
 
   // Default Bronze rates
   let quizRate = 0.05;
   let videoRate = 0.05;
 
-  // Plan-specific rates (quiz & video same)
+  // Plan-based rates
   const planRates = {
-    Silver: 0.216,
+    Silver: 0.21,
     Gold1: 0.40,
     Gold2: 0.80,
     Premium1: 2.25,
@@ -25,18 +26,20 @@ function calculateCommission(
     Premium5: 45,
   };
 
-  if (business_plan in planRates) {
-    if (day_count > 0) {
-      quizRate = planRates[business_plan];
-      videoRate = planRates[business_plan]; // ✅ same rate
-    } else {
-      // Plan expired → fallback to Bronze
-      quizRate = 0.05;
-      videoRate = 0.05;
+  // ✅ If user has valid active plan (days left between 1 and 45)
+  if (days >= 1 && days <= 45) {
+    const planKey = business_plan.replace(/\s+/g, ""); // remove spaces e.g. "Gold 1" → "Gold1"
+    if (planRates[planKey]) {
+      quizRate = planRates[planKey];
+      videoRate = planRates[planKey];
     }
+  } else {
+    // ❌ Expired or no plan → Bronze fallback
+    quizRate = 0.05;
+    videoRate = 0.05;
   }
 
-  // Calculate commissions properly
+  // Calculate final commission
   const quizCommission = scoreNum * quizRate;
   const videoCommission = videosNum * videoRate;
 
