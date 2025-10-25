@@ -278,40 +278,64 @@ router.post("/upgrade", async (req, res) => {
 
     // 🟩 Step 2: Fetch user info
     const userRes = await pool.query(
-      "SELECT coin, business_plan, under_ref, full_name FROM sign_up WHERE id = $1",
+      "SELECT coin, business_plan, under_ref, full_name, first_plan_date FROM sign_up WHERE id = $1",
       [userId]
     );
     if (userRes.rowCount === 0)
       return res.status(404).json({ success: false, message: "User not found" });
 
-    const { coin, business_plan: prevPlan, under_ref, full_name } = userRes.rows[0];
+    const { coin, business_plan: prevPlan, under_ref, full_name, first_plan_date } = userRes.rows[0];
 
-    // 🟥 Step 3: Check balance
-    if (coin < amount) {
-      return res.status(400).json({ success: false, message: "Insufficient wallet balance" });
+    // 🟩 Step 3: Check if this is first plan purchase
+    const isFirstPlanPurchase = (prevPlan === 'Bronze' && !first_plan_date);
+    
+    // 🟩 Step 4: Calculate total deduction amount
+    const totalDeductionAmount = isFirstPlanPurchase ? 
+      amount + 6 : // Plan amount + $6 app cost
+      amount;      // Only plan amount
+
+    // 🟥 Step 5: Check balance with TOTAL amount (including $6 if first purchase)
+    if (coin < totalDeductionAmount) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Insufficient wallet balance. Need $${totalDeductionAmount} but have $${coin}.` 
+      });
     }
 
-    // 🟩 Step 4: Deduct amount + upgrade plan
-    const newBalance = coin - amount;
-    await pool.query(
-      "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45 WHERE id = $3",
-      [newBalance, newPlan, userId]
-    );
+    // 🟩 Step 6: Deduct TOTAL amount + upgrade plan
+    const newBalance = coin - totalDeductionAmount;
+    
+    if (isFirstPlanPurchase) {
+      // ✅ First time plan purchase - set first_plan_date and deduct plan + $6
+      await pool.query(
+        "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45, first_plan_date = NOW() WHERE id = $3",
+        [newBalance, newPlan, userId]
+      );
+    } else {
+      // ✅ Regular upgrade - only deduct plan amount
+      await pool.query(
+        "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45 WHERE id = $3",
+        [newBalance, newPlan, userId]
+      );
+    }
 
-    // 🟩 Step 5: Insert payment record
+    // 🟩 Step 7: Insert payment record with ACTUAL deducted amount
     await pool.query(
       `INSERT INTO payment_uploads (user_id, plan, amount) VALUES ($1, $2, $3)`,
-      [userId, newPlan, amount]
+      [userId, newPlan, totalDeductionAmount] // Store the actual deducted amount
     );
 
-    // 🟩 Step 6: Add notification for user
-    const userMsg = `Your plan upgraded from ${prevPlan} to ${newPlan}.`;
+    // 🟩 Step 8: Add notification for user
+    const userMsg = isFirstPlanPurchase ?
+      `Your plan upgraded from ${prevPlan} to ${newPlan}. $6 app cost included.` :
+      `Your plan upgraded from ${prevPlan} to ${newPlan}.`;
+    
     await pool.query(`INSERT INTO notifications (user_id, message) VALUES ($1, $2)`, [
       userId,
       userMsg,
     ]);
 
-    // 🟩 Step 7: Notify referrer if exists
+    // 🟩 Step 9: Notify referrer if exists
     if (under_ref) {
       const refRes = await pool.query(
         "SELECT id FROM sign_up WHERE reference_code = $1",
@@ -329,15 +353,17 @@ router.post("/upgrade", async (req, res) => {
 
     res.json({
       success: true,
-      message: `Plan upgraded to ${newPlan}. Wallet deducted $${amount}.`,
+      message: isFirstPlanPurchase ?
+        `Plan upgraded to ${newPlan}. Wallet deducted $${totalDeductionAmount} (plan + $6 app cost).` :
+        `Plan upgraded to ${newPlan}. Wallet deducted $${totalDeductionAmount}.`,
+      isFirstPlanPurchase: isFirstPlanPurchase,
+      deductedAmount: totalDeductionAmount // Send back actual deducted amount
     });
   } catch (err) {
     console.error("💥 Plan upgrade error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
-
 
 // --- ADMIN: Update Due Status ---
 router.put("/update-due/:id", async (req, res) => {

@@ -20,6 +20,7 @@ const walletRoutes = require("./routes/walletRoutes");
 const dashboardRoutes = require("./routes/dashboard"); 
 const cryptoRoutes = require("./routes/cryptoRoutes");
 const contactRoutes = require("./routes/contactRoutes");
+const mpinRoutes = require("./routes/mpinRoutes");
 
 require("./cronJobs/cleanup");
 require("./cronJobs/unverifyIfNoMpin");
@@ -65,6 +66,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/videos", express.static(path.join(__dirname, "uploads/videos")));
 
 
 // Log every incoming request
@@ -91,7 +93,7 @@ app.use("/api", walletRoutes);
 app.use("/api", cryptoRoutes);
 app.use("/api", contactRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-
+app.use("/api/users", mpinRoutes);
 
 
 // Start server
@@ -112,5 +114,5 @@ app.get("/", (req, res) => {
   res.json({ success: true, message: "Backend is running 🚀" });
 });
 
-
+ 
 

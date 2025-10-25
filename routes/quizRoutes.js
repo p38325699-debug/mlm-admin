@@ -38,14 +38,55 @@ router.get("/start/:userId", (req, res) => {
 });
 
 // Start quiz
+// router.post("/start/:userId", async (req, res) => {
+//  const { userId } = req.params;
+//   try {
+//     if (!userId) {
+//       return res.status(400).json({ success: false, message: "User ID required" });
+//     }
+
+//     const today = new Date().toISOString().split("T")[0];
+//     const check = await pool.query(
+//       `SELECT * FROM quiz_history WHERE user_id = $1 AND quiz_date = $2`,
+//       [userId, today]
+//     );
+
+//     if (check.rowCount > 0) {
+//       return res.json({
+//         success: true,
+//         canPlay: false,
+//         message: "You have already played today's quiz.",
+//       });
+//     }
+
+//     await pool.query(
+//       `INSERT INTO quiz_history (user_id, quiz_date, score, correct_answers, credit_amount)
+//        VALUES ($1, $2, 0, 0, 0)`,
+//       [userId, today]
+//     );
+
+//     res.json({ success: true, canPlay: true, message: "Quiz started successfully" });
+//   } catch (err) {
+//     console.error("❌ Error starting quiz:", err.message);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+// ✅ Start quiz (safe from day_count changes)
 router.post("/start/:userId", async (req, res) => {
- const { userId } = req.params;
+  const { userId } = req.params;
+
   try {
     if (!userId) {
-      return res.status(400).json({ success: false, message: "User ID required" });
+      return res.status(400).json({
+        success: false,
+        message: "User ID required",
+      });
     }
 
     const today = new Date().toISOString().split("T")[0];
+
+    // 🧠 Check if user already played today
     const check = await pool.query(
       `SELECT * FROM quiz_history WHERE user_id = $1 AND quiz_date = $2`,
       [userId, today]
@@ -59,16 +100,41 @@ router.post("/start/:userId", async (req, res) => {
       });
     }
 
+    // 🧩 Insert today's quiz start entry
     await pool.query(
       `INSERT INTO quiz_history (user_id, quiz_date, score, correct_answers, credit_amount)
        VALUES ($1, $2, 0, 0, 0)`,
       [userId, today]
     );
 
-    res.json({ success: true, canPlay: true, message: "Quiz started successfully" });
+    // 🛡 Safe-guard: explicitly freeze day_count (no accidental update)
+    await pool.query(
+      `UPDATE sign_up 
+         SET day_count = day_count, 
+             last_quiz_time = NOW()
+       WHERE id = $1`,
+      [userId]
+    );
+
+    // 🧠 Optional log for debugging
+    const userCheck = await pool.query(
+      "SELECT day_count, business_plan FROM sign_up WHERE id = $1",
+      [userId]
+    );
+    console.log(
+      `🧩 [QUIZ START SAFE] User ${userId} | day_count=${userCheck.rows[0].day_count} | plan=${userCheck.rows[0].business_plan}`
+    );
+
+    res.json({
+      success: true,
+      canPlay: true,
+      message: "Quiz started successfully",
+    });
   } catch (err) {
     console.error("❌ Error starting quiz:", err.message);
-    res.status(500).json({ success: false, message: "Server error" });
+    res
+      .status(500)
+      .json({ success: false, message: "Server error during quiz start" });
   }
 });
 

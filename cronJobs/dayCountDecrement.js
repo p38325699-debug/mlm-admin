@@ -1,6 +1,6 @@
 // backend/cronJobs/dayCountDecrement.js
 const cron = require("node-cron");
-const pool = require("../config/db");
+const pool = require("../config/db"); 
 
 // 🧠 verify DB connection
 (async () => {

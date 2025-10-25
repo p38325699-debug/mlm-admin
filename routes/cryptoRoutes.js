@@ -1,140 +1,108 @@
-// routes/cryptoRoutes.js - FIXED VERSION
+// routes/cryptoRoutes.js
 const express = require("express");
 const router = express.Router();
 const axios = require("axios");
 const crypto = require("crypto");
 const pool = require("../config/db");
 
-// ✅ Create Cryptomus Payment (USDT BEP20)
+// ✅ Create Cryptomus Payment
 router.post("/crypto-payment", async (req, res) => {
   try {
-    // const { user_id, amount, currency = "USD" } = req.body;
-    const { user_id, amount, currency = "USD", network } = req.body;
-
+    const { user_id, amount, currency = "USD" } = req.body;
 
     if (!user_id || !amount) {
       return res.status(400).json({
         success: false,
-        message: "Missing user_id or amount or network"
+        message: "Missing user_id or amount",
       });
     }
 
-    const allowedNetworks = [
-  "POLYGON", "AVALANCHE", "SOL", "TON", 
-  "TRON", "BSC", "ETH", "ARBITRUM"
-];
+    // ⚙️ Hardcoded credentials (use env vars in production)
+    const MERCHANT_ID = "b0d59e47-6d75-41ec-bffb-d241727373c1";
+    const API_KEY =
+      "ytlMOpHfCUVtRyHuCyqZ7bCCFUa0TZoa1B0DoaWvq1hPyK4me2dmyrScGuO4gCLlJQWtkXRSABxv4yhaa8sO3piRxfjx1hRhYc186D62GIMb6WNo42H7WJklTEN8vHjP";
 
-if (!allowedNetworks.includes(network)) {
-  return res.status(400).json({
-    success: false,
-    message: `Invalid network. Allowed: ${allowedNetworks.join(", ")}`
-  });
-}
-
-
-    // Cryptomus credentials - CORRECT KEYS
-    const merchantUuid = process.env.CRYPTOMUS_MERCHANT_ID; // Your user_key
-    const apiKey = process.env.CRYPTOMUS_API_KEY; // Your payment API key (NOT payout key)
-
-    if (!merchantUuid || !apiKey) {
-      return res.status(500).json({
-        success: false,
-        message: "Cryptomus credentials not configured"
-      });
-    }
-
-    // Generate unique order ID
+    // 🆔 Unique order ID
     const orderId = `CRYPTO_${user_id}_${Date.now()}`;
 
-    // ✅ CORRECT PAYLOAD FOR USDT BEP20
+    // ✅ Prepare payload
     const payload = {
       amount: amount.toString(),
-      currency: "USD", // You pay in USD
+      currency,
       order_id: orderId,
+      to_currency: "USDT",
+      lifetime: 1800,
       url_callback: `${process.env.API_BASE_URL}/api/crypto/crypto-callback`,
       url_return: `${process.env.CLIENT_URL}/payment-success`,
       url_success: `${process.env.CLIENT_URL}/payment-success`,
-      to_currency: "USDT",
-      network: network, // dynamically received from frontend
-      is_payment_multiple: false,
-      lifetime: 1800, // 30 minutes
-      subtract: 0 // User pays network fees
     };
 
-    console.log("🟡 Cryptomus Payload:", payload);
+    console.log("🟡 Sending Payload:", payload);
 
-    // ✅ CORRECT SIGNATURE GENERATION
-    const encodedData = Buffer.from(JSON.stringify(payload)).toString('base64');
+    // ✅ Encode + sign (for header only)
+    const base64data = Buffer.from(JSON.stringify(payload)).toString("base64");
     const sign = crypto
-      .createHash('md5')
-      .update(encodedData + apiKey)
-      .digest('hex');
+      .createHash("md5")
+      .update(base64data + API_KEY)
+      .digest("hex");
+
+    console.log("🟢 Generated Signature:", sign);
 
     const headers = {
-      'Content-Type': 'application/json',
-      'merchant': merchantUuid,
-      'sign': sign
+      merchant: MERCHANT_ID,
+      sign,
+      "Content-Type": "application/json",
     };
 
-    console.log("🟡 Making request to Cryptomus...");
-
-    // ✅ FASTER TIMEOUT & BETTER ERROR HANDLING
+    // ✅ Send request to Cryptomus API (IMPORTANT: send payload, not base64)
     const response = await axios.post(
-      'https://api.cryptomus.com/v1/payment',
-      payload,
-      {
-        headers,
-        timeout: 20000, // 20 second timeout
-        validateStatus: (status) => status < 500
-      }
+      "https://api.cryptomus.com/v1/payment",
+      payload, // ✅ Correct body
+      { headers }
     );
 
-    console.log("🟡 Cryptomus Response:", response.data);
+    console.log("✅ Cryptomus API Response:", response.data);
 
-    if (response.data.result) {
-      // Store in database
+    // ✅ Save to DB and return success
+    if (response.data?.result?.url) {
       await pool.query(
-        `INSERT INTO crypto_payments (user_id, amount, currency, network, order_id, payment_status, payment_url)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [user_id, amount, 'USDT', 'BEP20', orderId, 'pending', response.data.result.url]
+        `INSERT INTO crypto_payments 
+         (user_id, amount, currency, order_id, payment_status, payment_url)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [user_id, amount, currency, orderId, "pending", response.data.result.url]
       );
-
 
       return res.json({
         success: true,
-        payment: response.data,
+        payment_url: response.data.result.url,
         order_id: orderId,
-        payment_url: response.data.result.url
       });
     } else {
-      throw new Error(response.data.message || 'Cryptomus API error');
+      console.log("⚠️ Cryptomus returned unexpected data:", response.data);
+      return res.status(500).json({
+        success: false,
+        message: response.data.message || "Payment initiation failed",
+      });
     }
-
   } catch (error) {
-    console.error("❌ Cryptomus Payment Error:", {
-      message: error.message,
-      response: error.response?.data,
-      code: error.code
-    });
-
-    let errorMessage = "Payment initiation failed";
-
-    if (error.code === 'ECONNABORTED') {
-      errorMessage = "Payment gateway timeout. Please try again.";
-    } else if (error.response?.data?.message) {
-      errorMessage = error.response.data.message;
-    } else if (error.response?.status === 522) {
-      errorMessage = "Payment service temporarily unavailable. Please try again in a few minutes.";
+    console.error("❌ Cryptomus Error Details:");
+    if (error.response) {
+      console.error("🔴 Status:", error.response.status);
+      console.error("🔴 Data:", error.response.data);
+    } else {
+      console.error(error);
     }
 
     res.status(500).json({
       success: false,
-      message: errorMessage
+      message:
+        error.response?.data?.message ||
+        "Payment initiation failed (check server logs)",
     });
   }
 });
 
-// ✅ Webhook handler for Cryptomus
+// ✅ Cryptomus Webhook (unchanged)
 router.post("/crypto/crypto-callback", async (req, res) => {
   try {
     console.log("🟡 Cryptomus Callback Received:", req.body);
@@ -142,16 +110,14 @@ router.post("/crypto/crypto-callback", async (req, res) => {
     const { order_id, status, amount, currency } = req.body;
 
     if (status === "paid" || status === "paid_over") {
-      // Find payment record
-      const paymentResult = await pool.query(
+      const result = await pool.query(
         "SELECT * FROM crypto_payments WHERE order_id = $1",
         [order_id]
       );
 
-      if (paymentResult.rows.length > 0) {
-        const payment = paymentResult.rows[0];
+      if (result.rows.length > 0) {
+        const payment = result.rows[0];
 
-        // ✅ Update payment as confirmed
         await pool.query(
           `UPDATE crypto_payments 
            SET payment_status = 'confirmed', updated_at = NOW()
@@ -159,21 +125,18 @@ router.post("/crypto/crypto-callback", async (req, res) => {
           [order_id]
         );
 
-        // ✅ Update user balance
         await pool.query(
           "UPDATE sign_up SET coin = COALESCE(coin, 0) + $1 WHERE id = $2",
           [amount, payment.user_id]
         );
 
-        // ✅ Create a notification entry
-        const message = `Crypto payment of ${amount} ${currency} has been successfully received and added to your wallet.`;
-
+        const message = `Crypto payment of ${amount} ${currency} confirmed and added to your wallet.`;
         await pool.query(
           "INSERT INTO notifications (user_id, message) VALUES ($1, $2)",
           [payment.user_id, message]
         );
 
-        console.log("✅ Payment confirmed & notification added:", message);
+        console.log("✅ Payment confirmed for order:", order_id);
       }
     }
 
@@ -183,43 +146,5 @@ router.post("/crypto/crypto-callback", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
-// ✅ Admin: Fetch all crypto payments with user info
-router.get("/admin/all-payments", async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        c.id,
-        c.user_id,
-        s.full_name,
-        s.email,
-        c.order_id,
-        c.amount,
-        c.currency,
-        c.network,
-        c.payment_status,
-        c.tx_hash,
-        c.payment_url,
-        TO_CHAR(c.created_at, 'YYYY-MM-DD HH24:MI:SS') AS created_at,
-        TO_CHAR(c.updated_at, 'YYYY-MM-DD HH24:MI:SS') AS updated_at
-      FROM crypto_payments c
-      JOIN sign_up s ON c.user_id = s.id
-      ORDER BY c.created_at DESC;
-    `);
-
-    res.json({
-      success: true,
-      total: result.rows.length,
-      payments: result.rows
-    });
-  } catch (error) {
-    console.error("❌ Fetch All Payments Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch crypto payments"
-    });
-  }
-});
-
 
 module.exports = router;

@@ -258,74 +258,24 @@ router.get("/wallet/user/:userId", async (req, res) => {
   }
 });
 
-// // ✅ Create wallet popup
-// router.post("/wallet-popup", async (req, res) => {
-//   try {
-//     const { user_id, amount, message } = req.body;
 
-//     // Basic validation
-//     if (!user_id || !amount || !message) {
-//       return res.status(400).json({ success: false, message: "Missing required fields" });
-//     }
-//     if (amount < 50) {
-//       return res.status(400).json({ success: false, message: "Amount must be at least $50" });
-//     }
-
-//     const result = await pool.query(
-//       `INSERT INTO wallet_popups (user_id, amount, message)
-//        VALUES ($1, $2, $3) RETURNING *`,
-//       [user_id, amount, message]
-//     );
-
-//     res.json({ success: true, data: result.rows[0], message: "Popup created successfully" });
-//   } catch (err) {
-//     console.error("💥 Wallet Popup Error:", err.message);
-//     res.status(500).json({ success: false, message: "Server error" });
-//   }
-// });
-
-
-// // ✅ Get all pending popups for user
-// router.get("/wallet-popup/:userId", async (req, res) => {
-//   try {
-//     const { userId } = req.params;
-
-//     const result = await pool.query(
-//       `SELECT * FROM wallet_popups
-//        WHERE user_id = $1 AND done = FALSE
-//        ORDER BY created_at DESC`,
-//       [userId]
-//     );
-
-//     res.json({ success: true, data: result.rows });
-//   } catch (err) {
-//     console.error("💥 Fetch Popup Error:", err.message);
-//     res.status(500).json({ success: false, message: "Server error" });
-//   }
-// });
-
-
-// // ✅ Mark popup as done
-// router.put("/wallet-popup/done/:id", async (req, res) => {
-//   try {
-//     const { id } = req.params;
-
-//     await pool.query(
-//       `UPDATE wallet_popups SET done = TRUE WHERE id = $1`,
-//       [id]
-//     );
-
-//     res.json({ success: true, message: "Popup marked as done" });
-//   } catch (err) {
-//     console.error("💥 Update Popup Error:", err.message);
-//     res.status(500).json({ success: false, message: "Server error" });
-//   }
-// });
 
 // POST /api/wallet-withdrawal
 router.post("/wallet-withdrawal", async (req, res) => {
   try {
-    const { user_id, amount, message } = req.body;
+    const {
+  user_id,
+  amount,
+  message,
+  method,
+  upi_address,
+  bank_holder_name,
+  bank_name,
+  ifsc_code,
+  crypto_address,
+  crypto_network
+} = req.body;
+
 
     if (!user_id || !amount) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
@@ -335,11 +285,15 @@ router.post("/wallet-withdrawal", async (req, res) => {
       return res.status(400).json({ success: false, message: "Minimum withdrawal amount is $50" });
     }
 
-    const result = await pool.query(
-      `INSERT INTO wallet_withdrawals (user_id, amount, message)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [user_id, amount, message || null]
-    );
+   const result = await pool.query(
+  `INSERT INTO wallet_withdrawals 
+   (user_id, amount, message, method, upi_address, bank_holder_name, bank_name, ifsc_code, crypto_address, crypto_network)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+   RETURNING *`,
+  [user_id, amount, message || null, method || 'UPI', upi_address || null, bank_holder_name || null,
+   bank_name || null, ifsc_code || null, crypto_address || null, crypto_network || 'BEP20']
+);
+
 
     res.json({ success: true, data: result.rows[0], message: "Withdrawal request submitted successfully" });
   } catch (err) {
@@ -387,14 +341,29 @@ router.get("/wallet-withdrawals/:userId", async (req, res) => {
   }
 });
 
-// ✅ Admin: Fetch all withdrawal requests
+// ✅ Admin: Fetch all withdrawal requests (UPI / Bank / Crypto)
 router.get("/withdrawals/all", async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT 
-        w.*, 
-        s.full_name, 
-        s.email
+        w.id,
+        w.user_id,
+        s.full_name,
+        s.email,
+        w.amount,
+        w.message,
+        w.method,
+        w.status,
+        w.created_at,
+
+        -- Optional fields depending on method
+        w.upi_address,
+        w.bank_holder_name,
+        w.bank_name,
+        w.ifsc_code,
+        w.crypto_address,
+        w.crypto_network
+
       FROM wallet_withdrawals w
       JOIN sign_up s ON w.user_id = s.id
       ORDER BY w.created_at DESC
@@ -407,6 +376,28 @@ router.get("/withdrawals/all", async (req, res) => {
   }
 });
 
+// ✅ Check if user has pending withdrawal
+router.get("/withdrawals/check-pending/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const result = await pool.query(
+      "SELECT COUNT(*) as pending_count FROM wallet_withdrawals WHERE user_id = $1 AND status = 'pending'",
+      [userId]
+    );
+
+    const hasPending = parseInt(result.rows[0].pending_count) > 0;
+    
+    res.json({ 
+      success: true, 
+      hasPending: hasPending,
+      pendingCount: parseInt(result.rows[0].pending_count)
+    });
+  } catch (err) {
+    console.error("💥 Check Pending Withdrawals Error:", err.message);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
 // ✅ Admin: Update withdrawal status
 router.put("/withdrawals/:id", async (req, res) => {
