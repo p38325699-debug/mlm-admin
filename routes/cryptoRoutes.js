@@ -5,6 +5,7 @@ const axios = require("axios");
 const crypto = require("crypto");
 const pool = require("../config/db");
 
+
 // ✅ Create Cryptomus Payment
 router.post("/crypto-payment", async (req, res) => {
   try {
@@ -17,25 +18,29 @@ router.post("/crypto-payment", async (req, res) => {
       });
     }
 
-    // ⚙️ Hardcoded credentials (use env vars in production)
-    const MERCHANT_ID = "b0d59e47-6d75-41ec-bffb-d241727373c1";
-    const API_KEY =
-      "ytlMOpHfCUVtRyHuCyqZ7bCCFUa0TZoa1B0DoaWvq1hPyK4me2dmyrScGuO4gCLlJQWtkXRSABxv4yhaa8sO3piRxfjx1hRhYc186D62GIMb6WNo42H7WJklTEN8vHjP";
+    // // ⚙️ Hardcoded credentials (use env vars in production)
+    // const MERCHANT_ID = "b0d59e47-6d75-41ec-bffb-d241727373c1";
+    // const API_KEY =
+    //   "ytlMOpHfCUVtRyHuCyqZ7bCCFUa0TZoa1B0DoaWvq1hPyK4me2dmyrScGuO4gCLlJQWtkXRSABxv4yhaa8sO3piRxfjx1hRhYc186D62GIMb6WNo42H7WJklTEN8vHjP";
+
+    const MERCHANT_ID = process.env.CRYPTOMUS_MERCHANT_ID;
+const API_KEY = process.env.CRYPTOMUS_API_KEY;
 
     // 🆔 Unique order ID
     const orderId = `CRYPTO_${user_id}_${Date.now()}`;
 
     // ✅ Prepare payload
     const payload = {
-      amount: amount.toString(),
-      currency,
-      order_id: orderId,
-      to_currency: "USDT",
-      lifetime: 1800,
-      url_callback: `${process.env.API_BASE_URL}/api/crypto/crypto-callback`,
-      url_return: `${process.env.CLIENT_URL}/payment-success`,
-      url_success: `${process.env.CLIENT_URL}/payment-success`,
-    };
+  amount: amount.toString(),
+  currency,
+  order_id: orderId,
+  to_currency: "USDT",
+  lifetime: 1800,
+  url_callback: `${process.env.API_BASE_URL}/api/crypto/crypto-callback`,
+  url_return: `${process.env.CLIENT_URL}/payment-success`,
+  url_success: `${process.env.CLIENT_URL}/payment-success`,
+};
+
 
     console.log("🟡 Sending Payload:", payload);
 
@@ -100,7 +105,7 @@ router.post("/crypto-payment", async (req, res) => {
         "Payment initiation failed (check server logs)",
     });
   }
-});
+}); 
 
 // ✅ Cryptomus Webhook (unchanged)
 router.post("/crypto/crypto-callback", async (req, res) => {
