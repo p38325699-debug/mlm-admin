@@ -23,8 +23,7 @@ const contactRoutes = require("./routes/contactRoutes");
 const mpinRoutes = require("./routes/mpinRoutes");
 const cronRoutes = require("./routes/cronRoutes");
 const rewardRoutes = require("./routes/rewardRoutes");
-
-
+const goldRewardsRoutes = require("./routes/goldRewards");
 
 const app = express();
   
@@ -96,6 +95,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/users", mpinRoutes);
 app.use("/api/cron", cronRoutes); 
 app.use("/api", rewardRoutes);
+app.use("/api/gold-rewards", goldRewardsRoutes);
 
 // Start server
 const PORT = process.env.PORT || 5000;

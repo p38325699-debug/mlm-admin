@@ -55,6 +55,57 @@ router.post("/apply", async (req, res) => {
   }
 });
 
+
+// ✅ Get User Referral Data + Business Plan + Reference Count
+router.get("/user/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 🟢 Fetch user's own referral and plan data
+    const userQuery = `
+      SELECT id, full_name, email, under_ref, reference_code, business_plan, reference_count
+      FROM public.sign_up
+      WHERE id = $1
+    `;
+    const userResult = await pool.query(userQuery, [id]);
+
+    if (userResult.rowCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const user = userResult.rows[0];
+
+    // 🟣 Fetch members referred by this user (include their reference_count)
+    const refQuery = `
+      SELECT 
+        id, 
+        full_name, 
+        email, 
+        business_plan, 
+        reference_code, 
+        under_ref,
+        reference_count
+      FROM public.sign_up
+      WHERE under_ref = $1
+      ORDER BY id ASC
+    `;
+    const refResult = await pool.query(refQuery, [user.reference_code]);
+
+    // 🧠 Build the final response
+    return res.status(200).json({
+      success: true,
+      user,
+      referred_members: refResult.rows,
+    });
+
+  } catch (err) {
+    console.error("💥 Referral fetch error:", err);
+    res.status(500).json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+
+
 // ------------------------------------------------------
 // 🟢 Get Upline Users (up to 10 levels)
 // ------------------------------------------------------
@@ -207,13 +258,30 @@ router.get("/tree/:userId", async (req, res) => {
     const result = await pool.query(
       `
       WITH RECURSIVE tree AS (
-        SELECT id, full_name, reference_code, under_ref, 0 AS level
+        SELECT 
+          id, 
+          full_name, 
+          reference_code, 
+          under_ref, 
+          business_plan, 
+          reference_count,
+          0 AS level
         FROM sign_up
         WHERE id = $1
+
         UNION ALL
-        SELECT s.id, s.full_name, s.reference_code, s.under_ref, t.level + 1
+
+        SELECT 
+          s.id, 
+          s.full_name, 
+          s.reference_code, 
+          s.under_ref, 
+          s.business_plan, 
+          s.reference_count,
+          t.level + 1
         FROM sign_up s
-        INNER JOIN tree t ON s.under_ref = t.reference_code
+        INNER JOIN tree t 
+          ON s.under_ref = t.reference_code
         WHERE t.level < 10
       )
       SELECT * FROM tree ORDER BY level, id;
@@ -227,5 +295,6 @@ router.get("/tree/:userId", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 
 module.exports = router;
