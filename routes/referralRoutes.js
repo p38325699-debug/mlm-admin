@@ -167,6 +167,17 @@ router.post("/upgrade-plan", async (req, res) => {
 
     await client.query("COMMIT");
 
+    // ✅ If user upgraded to Gold 1, trigger reward tree check
+if (newPlan === "Gold 1") {
+  const updateGold1Rewards = require("../utils/goldRewardHandler");
+  // await updateGold1Rewards(userId); 
+  if (uplines.length > 0) {
+  await updateGold1Rewards(uplines[0].id);  // Direct upline gets Gold1 count
+}
+
+}
+
+
     // 🧩 After commit — call maintenanceDistributor
     const totalPaid = planPrice * 1.1; // including 10% maintenance
     await distributeMaintenance(userId, planPrice, totalPaid);

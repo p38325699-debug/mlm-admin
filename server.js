@@ -22,6 +22,9 @@ const cryptoRoutes = require("./routes/cryptoRoutes");
 const contactRoutes = require("./routes/contactRoutes");
 const mpinRoutes = require("./routes/mpinRoutes");
 const cronRoutes = require("./routes/cronRoutes");
+const rewardRoutes = require("./routes/rewardRoutes");
+
+
 
 const app = express();
   
@@ -91,7 +94,8 @@ app.use("/api", cryptoRoutes);
 app.use("/api", contactRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/users", mpinRoutes);
-app.use("/api/cron", cronRoutes); //my file name cronJobs
+app.use("/api/cron", cronRoutes); 
+app.use("/api", rewardRoutes);
 
 // Start server
 const PORT = process.env.PORT || 5000;
