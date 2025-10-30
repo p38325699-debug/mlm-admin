@@ -23,10 +23,6 @@ const contactRoutes = require("./routes/contactRoutes");
 const mpinRoutes = require("./routes/mpinRoutes");
 const cronRoutes = require("./routes/cronRoutes");
 
-require("./cronJobs/cleanup");
-require("./cronJobs/unverifyIfNoMpin");
-
-
 const app = express();
   
 // Middleware
@@ -107,7 +103,8 @@ require("./cronJobs/dailyQuizInit");
 require("./cronJobs/monthlyDeduction");      
 require("./cronJobs/maintenanceReminder"); 
 require("./cronJobs/dailyCheck.js");
-require("./cronJobs/planDeduction"); // 🆕 Auto 1-day notify + 2-day deduct
+require("./cronJobs/planDeduction"); 
+require("./cronJobs/unverifyIfNoMpin");
 // backend/server.js
 require("./utils/cronJobs"); // Add this near the top (after dotenv)
 
