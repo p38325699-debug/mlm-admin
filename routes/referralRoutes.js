@@ -1,150 +1,84 @@
-// backend/routes/referralRoutes.js
+// ✅ backend/routes/referralRoutes.js
 const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
-
-/* ------------------ Upgrade Plan & Distribute Commissions ------------------ */
 const plans = require("../utils/plans");
+const distributeMaintenance = require("../utils/maintenanceDistributor");
 
-// 10-level commission chart
+// 🧠 Commission rates per level (in %)
 const COMMISSION_RATES = [30, 20, 15, 10, 5, 3, 2, 1, 0.5, 0.25];
 
-
-
-/* ------------------ Apply Referral Code ------------------ */
+// ------------------------------------------------------
+// 🟢 Apply Referral Code
+// ------------------------------------------------------
 router.post("/apply", async (req, res) => {
   try {
     const { userId, referralCode } = req.body;
-    if (!userId) {
-      return res.status(400).json({ success: false, message: "Missing userId" });
-    }
+    if (!userId || !referralCode)
+      return res.status(400).json({ success: false, message: "Missing fields" });
 
-    const refUser = await pool.query(
+    // Find parent (referrer)
+    const parentRes = await pool.query(
       "SELECT id, reference_code FROM sign_up WHERE reference_code = $1",
       [referralCode]
     );
+    if (parentRes.rows.length === 0)
+      return res.status(400).json({ success: false, message: "Invalid referral code" });
 
-    if (refUser.rows.length === 0) {
-      return res.status(400).json({ success: false, message: "reference_code not valid" });
-    }
-    const parent = refUser.rows[0];
+    const parent = parentRes.rows[0];
 
-    const user = await pool.query(
+    // Check user
+    const userRes = await pool.query(
       "SELECT id, reference_code, under_ref FROM sign_up WHERE id = $1",
       [userId]
     );
+    if (userRes.rows.length === 0)
+      return res.status(404).json({ success: false, message: "User not found" });
 
-    if (user.rows.length === 0) {
-      return res.status(404).json({ success: false, message: `User with id ${userId} not found` });
-    }
+    const user = userRes.rows[0];
+    if (user.reference_code === referralCode)
+      return res.status(400).json({ success: false, message: "Cannot use own referral code" });
 
-    const currentUser = user.rows[0];
+    if (user.under_ref)
+      return res.status(400).json({ success: false, message: "Referral already applied" });
 
-    if (currentUser.reference_code === referralCode) {
-      return res.status(400).json({ success: false, message: "own reference_code not valid" });
-    }
-
-    if (currentUser.under_ref) {
-      return res.status(400).json({ success: false, message: "Referral code already applied" });
-    }
-
-    await pool.query("UPDATE sign_up SET under_ref = $1 WHERE id = $2", [
-      referralCode,
-      userId,
-    ]);
-
+    // Update user's ref and parent's count
+    await pool.query("UPDATE sign_up SET under_ref = $1 WHERE id = $2", [referralCode, userId]);
     await pool.query("UPDATE sign_up SET reference_count = reference_count + 1 WHERE id = $1", [
       parent.id,
     ]);
 
-    return res.json({ success: true, message: "Referral applied successfully" });
+    res.json({ success: true, message: "Referral applied successfully" });
   } catch (err) {
     console.error("Referral apply error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-/* ------------------ Get Referrer ------------------ */
-router.get("/referrer/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
+// ------------------------------------------------------
+// 🟢 Get Upline Users (up to 10 levels)
+// ------------------------------------------------------
+async function getUplines(referralCode, client) {
+  const uplines = [];
+  let currentRef = referralCode;
 
-    const userRes = await pool.query(
-      "SELECT under_ref FROM sign_up WHERE id = $1",
-      [userId]
+  for (let level = 1; level <= 10 && currentRef; level++) {
+    const res = await client.query(
+      "SELECT id, full_name, reference_code, under_ref FROM sign_up WHERE reference_code = $1",
+      [currentRef]
     );
-
-    if (userRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
-    const underRef = userRes.rows[0].under_ref;
-    if (!underRef) {
-      return res.json({ success: true, referrer: null });
-    }
-
-    const referrerRes = await pool.query(
-      "SELECT full_name, business_plan, reference_count, reference_code FROM sign_up WHERE reference_code = $1",
-      [underRef]
-    );
-
-    if (referrerRes.rows.length === 0) {
-      return res.json({ success: true, referrer: null });
-    }
-
-    return res.json({ success: true, referrer: referrerRes.rows[0] });
-  } catch (err) {
-    console.error("Referrer fetch error:", err.message);
-    res.status(500).json({ success: false, message: "Server error" });
+    if (res.rows.length === 0) break;
+    const upline = res.rows[0];
+    uplines.push({ ...upline, level });
+    currentRef = upline.under_ref;
   }
-});
- 
-/* ------------------ Get Complete Downline Tree ------------------ */
-router.get("/tree/:userId", async (req, res) => {
-  try {
-    const { userId } = req.params;
 
-    const referrals = await pool.query(
-      `
-      WITH RECURSIVE downline AS (
-        -- Root (the current user)
-        SELECT  
-          s.id, 
-          s.full_name, 
-          s.business_plan, 
-          s.reference_count, 
-          s.reference_code,
-          s.under_ref,
-          0 AS level
-        FROM sign_up s
-        WHERE s.id = $1
+  return uplines;
+}
 
-        UNION ALL
-
-        -- Children
-        SELECT 
-          child.id, 
-          child.full_name, 
-          child.business_plan, 
-          child.reference_count, 
-          child.reference_code,
-          child.under_ref,
-          d.level + 1
-        FROM sign_up child
-        INNER JOIN downline d ON child.under_ref = d.reference_code
-        WHERE d.level < 10
-      )
-      SELECT * FROM downline ORDER BY level, id;
-      `,
-      [userId]
-    );
-
-    res.json({ success: true, data: referrals.rows });
-  } catch (err) {
-    console.error("❌ Referral tree error:", err.message);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
-});
+// ------------------------------------------------------
+// 🟢 Upgrade Plan + Multi-Level + Maintenance Commission
+// ------------------------------------------------------
 
 
 router.post("/upgrade-plan", async (req, res) => {
@@ -152,90 +86,135 @@ router.post("/upgrade-plan", async (req, res) => {
 
   try {
     const { userId, newPlan } = req.body;
-
-    if (!userId || !newPlan) {
+    if (!userId || !newPlan)
       return res.status(400).json({ success: false, message: "Missing userId or newPlan" });
-    }
 
     const planPrice = plans[newPlan];
-    if (planPrice === undefined) {
+    if (planPrice === undefined)
       return res.status(400).json({ success: false, message: "Invalid plan name" });
-    }
 
     await client.query("BEGIN");
 
-    // 1️⃣ Get user details
+    // Get user info
     const userRes = await client.query(
-      "SELECT id, full_name, business_plan, reference_code, under_ref FROM sign_up WHERE id = $1",
+      "SELECT id, full_name, reference_code, under_ref FROM sign_up WHERE id = $1",
       [userId]
     );
-    if (userRes.rows.length === 0) {
-      throw new Error("User not found");
-    }
-
+    if (userRes.rows.length === 0) throw new Error("User not found");
     const user = userRes.rows[0];
 
-    // 2️⃣ Update user's business plan
-    await client.query("UPDATE sign_up SET business_plan = $1 WHERE id = $2", [newPlan, userId]);
+    // Update user’s plan
+    await client.query(
+      "UPDATE sign_up SET business_plan = $1, first_plan_date = NOW() WHERE id = $2",
+      [newPlan, userId]
+    );
 
-    // 3️⃣ Find uplines (up to 10)
-    const uplines = [];
-    let currentRef = user.under_ref;
+    // Fetch upline tree (10 levels max)
+    const uplines = await getUplines(user.under_ref, client);
 
-    for (let level = 1; level <= 10 && currentRef; level++) {
-      const refRes = await client.query(
-        "SELECT id, full_name, reference_code, under_ref FROM sign_up WHERE reference_code = $1",
-        [currentRef]
-      );
+    // 💸 Direct sponsor bonus (10%)
+    if (uplines.length >= 1) {
+      const direct = uplines[0];
+      const directBonus = (planPrice * 10) / 100;
 
-      if (refRes.rows.length === 0) break;
-
-      const upline = refRes.rows[0];
-      uplines.push({ ...upline, level });
-      currentRef = upline.under_ref; // move up one level
-    }
-
-      // 4️⃣ Distribute commissions up to 10 levels
-   for (const upline of uplines) {
-      const levelIndex = upline.level - 1;
-      const rate = COMMISSION_RATES[levelIndex];
-
-      // Skip if no valid rate
-      if (!rate) continue;
-
-      const commission = (planPrice * rate) / 100;
-
-      // Update upline’s coin balance
       await client.query(
-        "UPDATE sign_up SET coin = COALESCE(coin, 0) + $1 WHERE id = $2",
-        [commission, upline.id]
+        "UPDATE sign_up SET coin = COALESCE(coin,0) + $1 WHERE id = $2",
+        [directBonus, direct.id]
       );
-
-      // Create a readable message
-      const message = `${user.full_name} upgraded their plan to ${newPlan}. You received $${commission.toFixed(
-        2
-      )} (${rate}% from Level ${upline.level}).`;
 
       await client.query(
         "INSERT INTO notifications (user_id, message) VALUES ($1, $2)",
-        [upline.id, message]
+        [
+          direct.id,
+          `${user.full_name} upgraded to ${newPlan}. You received direct bonus ₹${directBonus.toFixed(
+            2
+          )}.`,
+        ]
       );
-          }
 
+      await client.query(
+        "INSERT INTO commission_history (user_id, from_user_id, type, amount, level) VALUES ($1,$2,'direct',$3,1)",
+        [direct.id, userId, directBonus.toFixed(2)]
+      );
+    }
+
+    // 🟣 Multi-Level Income
+    for (const upline of uplines) {
+      const rate = COMMISSION_RATES[upline.level - 1];
+      if (!rate) continue;
+      const commission = (planPrice * rate) / 100;
+
+      await client.query(
+        "UPDATE sign_up SET coin = COALESCE(coin,0) + $1 WHERE id = $2",
+        [commission, upline.id]
+      );
+
+      await client.query(
+        "INSERT INTO notifications (user_id, message) VALUES ($1, $2)",
+        [
+          upline.id,
+          `${user.full_name} upgraded to ${newPlan}. You earned ₹${commission.toFixed(
+            2
+          )} (${rate}% from Level ${upline.level}).`,
+        ]
+      );
+
+      await client.query(
+        "INSERT INTO commission_history (user_id, from_user_id, type, amount, level) VALUES ($1,$2,'plan',$3,$4)",
+        [upline.id, userId, commission.toFixed(2), upline.level]
+      );
+    }
 
     await client.query("COMMIT");
+
+    // 🧩 After commit — call maintenanceDistributor
+    const totalPaid = planPrice * 1.1; // including 10% maintenance
+    await distributeMaintenance(userId, planPrice, totalPaid);
+
     res.json({
       success: true,
-      message: "Plan upgraded and commissions distributed successfully",
+      message:
+        "Plan upgraded successfully. Multi-level commissions and maintenance distributed.",
     });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("💥 Plan upgrade error:", err.message);
+    console.error("Upgrade Plan Error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
   } finally {
     client.release();
   }
 });
 
+
+// ------------------------------------------------------
+// 🟠 Referral Tree (up to 10 levels)
+// ------------------------------------------------------
+router.get("/tree/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const result = await pool.query(
+      `
+      WITH RECURSIVE tree AS (
+        SELECT id, full_name, reference_code, under_ref, 0 AS level
+        FROM sign_up
+        WHERE id = $1
+        UNION ALL
+        SELECT s.id, s.full_name, s.reference_code, s.under_ref, t.level + 1
+        FROM sign_up s
+        INNER JOIN tree t ON s.under_ref = t.reference_code
+        WHERE t.level < 10
+      )
+      SELECT * FROM tree ORDER BY level, id;
+      `,
+      [userId]
+    );
+
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error("Referral Tree Error:", err.message);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
 module.exports = router;

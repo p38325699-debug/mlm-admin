@@ -239,26 +239,69 @@ router.get("/wallet/all", async (req, res) => {
 
 
 // ✅ Fetch wallet records for specific user
+// router.get("/wallet/user/:userId", async (req, res) => {
+//   try {
+//     const { userId } = req.params;
+//     const result = await pool.query(
+//       `SELECT * FROM wallet WHERE user_id = $1 ORDER BY payment_date DESC`,
+//       [userId]
+//     );
+
+//     if (result.rows.length === 0) {
+//       return res.json({ success: true, data: [], message: "No wallet records found" });
+//     }
+
+//     res.json({ success: true, data: result.rows });
+//   } catch (err) {
+//     console.error("💥 Fetch Wallet by User Error:", err.message);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+// ✅ Fetch wallet records for specific user (INCLUDE BOTH WALLET & CRYPTO PAYMENTS)
 router.get("/wallet/user/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    const result = await pool.query(
-      `SELECT * FROM wallet WHERE user_id = $1 ORDER BY payment_date DESC`,
+    
+    // Get regular wallet transactions
+    const walletResult = await pool.query(
+      `SELECT 
+        id, user_id, amount, method, utr_number, due, status, 
+        payment_date as created_at, 'wallet' as type, NULL as payment_status,
+        NULL as currency, NULL as network, NULL as tx_hash, NULL as order_id
+       FROM wallet 
+       WHERE user_id = $1`,
       [userId]
     );
 
-    if (result.rows.length === 0) {
+    // Get crypto payments - FIX: Use payment_status as status for consistency
+    const cryptoResult = await pool.query(
+      `SELECT 
+        id, user_id, amount, 'CRYPTO' as method, NULL as utr_number,
+        NULL as due, payment_status as status, created_at,
+        'crypto_payment' as type, payment_status,
+        currency, network, tx_hash, order_id
+       FROM crypto_payments 
+       WHERE user_id = $1`,
+      [userId]
+    );
+
+    // Combine both results
+    const combinedData = [
+      ...walletResult.rows,
+      ...cryptoResult.rows
+    ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    if (combinedData.length === 0) {
       return res.json({ success: true, data: [], message: "No wallet records found" });
     }
 
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: combinedData });
   } catch (err) {
     console.error("💥 Fetch Wallet by User Error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
-
 
 // POST /api/wallet-withdrawal
 router.post("/wallet-withdrawal", async (req, res) => {
@@ -439,7 +482,7 @@ router.put("/withdrawals/:id", async (req, res) => {
       // 🟢 Insert notification
       await pool.query(
         "INSERT INTO notifications (user_id, message) VALUES ($1, $2)",
-        [user_id, `${amount} amount credited in your account.`]
+        [user_id, `${amount} amount has been sent successfully for withdrawal.`]
       );
     }
 

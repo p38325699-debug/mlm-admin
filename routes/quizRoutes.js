@@ -72,7 +72,7 @@ router.get("/start/:userId", (req, res) => {
 //   }
 // });
 
-// ✅ Start quiz (safe from day_count changes)
+// ✅ Start quiz - set click_time when user clicks play
 router.post("/start/:userId", async (req, res) => {
   const { userId } = req.params;
 
@@ -86,44 +86,36 @@ router.post("/start/:userId", async (req, res) => {
 
     const today = new Date().toISOString().split("T")[0];
 
-    // 🧠 Check if user already played today
+    // 🧠 Check if user already has click_time for today
     const check = await pool.query(
-      `SELECT * FROM quiz_history WHERE user_id = $1 AND quiz_date = $2`,
+      `SELECT click_time FROM quiz_history WHERE user_id = $1 AND quiz_date = $2`,
       [userId, today]
     );
 
-    if (check.rowCount > 0) {
+    if (check.rowCount > 0 && check.rows[0].click_time !== null) {
       return res.json({
-        success: true,
+        success: false,
         canPlay: false,
         message: "You have already played today's quiz.",
       });
     }
 
-    // 🧩 Insert today's quiz start entry
-    await pool.query(
-      `INSERT INTO quiz_history (user_id, quiz_date, score, correct_answers, credit_amount)
-       VALUES ($1, $2, 0, 0, 0)`,
-      [userId, today]
-    );
-
-    // 🛡 Safe-guard: explicitly freeze day_count (no accidental update)
-    await pool.query(
-      `UPDATE sign_up 
-         SET day_count = day_count, 
-             last_quiz_time = NOW()
-       WHERE id = $1`,
-      [userId]
-    );
-
-    // 🧠 Optional log for debugging
-    const userCheck = await pool.query(
-      "SELECT day_count, business_plan FROM sign_up WHERE id = $1",
-      [userId]
-    );
-    console.log(
-      `🧩 [QUIZ START SAFE] User ${userId} | day_count=${userCheck.rows[0].day_count} | plan=${userCheck.rows[0].business_plan}`
-    );
+    // 🟢 INSERT or UPDATE with click_time
+    if (check.rowCount === 0) {
+      // First time - insert new record with click_time
+      await pool.query(
+        `INSERT INTO quiz_history (user_id, quiz_date, score, correct_answers, credit_amount, click_time)
+         VALUES ($1, $2, 0, 0, 0, NOW())`,
+        [userId, today]
+      );
+    } else {
+      // Record exists but click_time is null - update it
+      await pool.query(
+        `UPDATE quiz_history SET click_time = NOW() 
+         WHERE user_id = $1 AND quiz_date = $2`,
+        [userId, today]
+      );
+    }
 
     res.json({
       success: true,
@@ -132,38 +124,52 @@ router.post("/start/:userId", async (req, res) => {
     });
   } catch (err) {
     console.error("❌ Error starting quiz:", err.message);
-    res
-      .status(500)
-      .json({ success: false, message: "Server error during quiz start" });
+    res.status(500).json({ success: false, message: "Server error during quiz start" });
   }
 });
 
-
+// ✅ Check if user can play based on click_time
 router.get("/check/:userId", async (req, res) => {
+  const { userId } = req.params;
+
   try {
-    const { userId } = req.params;
-    const today = new Date().toISOString().split("T")[0];
-
-
+    const today = new Date().toISOString().split('T')[0];
+    
     const result = await pool.query(
-      `SELECT id FROM quiz_history WHERE user_id = $1 AND quiz_date = $2`,
+      `SELECT click_time 
+         FROM quiz_history 
+        WHERE user_id = $1 
+          AND quiz_date = $2
+        LIMIT 1`,
       [userId, today]
     );
 
-    if (result.rowCount > 0) {
+    // 🟢 If no record OR click_time is null → allow to play
+    if (result.rows.length === 0 || result.rows[0].click_time === null) {
       return res.json({
-      success: true,
-              canPlay: false,
-   message: "You have already played today's quiz."
-     });
-    } else {
-      return res.json({ success: true, canPlay: true });
+        success: true,
+        canPlay: true,
+        message: "You can start today's quiz!",
+      });
     }
-  } catch (err) {
-    console.error("❌ Quiz check error:", err.message);
-    res.status(500).json({ success: false, canPlay: false });
+
+    // 🔴 If click_time is NOT null → restrict
+    return res.json({
+      success: true,
+      canPlay: false,
+      message: "You have already played today's quiz. Try again tomorrow!",
+    });
+
+  } catch (error) {
+    console.error("❌ Error checking quiz eligibility:", error);
+    return res.status(500).json({
+      success: false,
+      canPlay: false,
+      message: "Server error while checking quiz eligibility.",
+    });
   }
 });
+
 
 // Admin: fetch quizzes + videos
 router.get("/quiz-with-videos", quizController.getQuizWithVideos);
@@ -220,7 +226,7 @@ router.get("/history/:userId", async (req, res) => {
   } catch (err) {
     console.error("Error fetching quiz history:", err);
     res.status(500).json({ success: false });
-  }
+  } 
 });
 
 module.exports = router;

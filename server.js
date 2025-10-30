@@ -21,6 +21,7 @@ const dashboardRoutes = require("./routes/dashboard");
 const cryptoRoutes = require("./routes/cryptoRoutes");
 const contactRoutes = require("./routes/contactRoutes");
 const mpinRoutes = require("./routes/mpinRoutes");
+const cronRoutes = require("./routes/cronRoutes");
 
 require("./cronJobs/cleanup");
 require("./cronJobs/unverifyIfNoMpin");
@@ -94,7 +95,7 @@ app.use("/api", cryptoRoutes);
 app.use("/api", contactRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/users", mpinRoutes);
-
+app.use("/api/cron", cronRoutes); //my file name cronJobs
 
 // Start server
 const PORT = process.env.PORT || 5000;
@@ -105,6 +106,11 @@ require("./cronJobs/cleanup");
 require("./cronJobs/dailyQuizInit");
 require("./cronJobs/monthlyDeduction");      
 require("./cronJobs/maintenanceReminder"); 
+require("./cronJobs/dailyCheck.js");
+require("./cronJobs/planDeduction"); // 🆕 Auto 1-day notify + 2-day deduct
+// backend/server.js
+require("./utils/cronJobs"); // Add this near the top (after dotenv)
+
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

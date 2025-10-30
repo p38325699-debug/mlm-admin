@@ -38,13 +38,15 @@ router.get("/profile/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT id, full_name, email, phone_number, dob, reference_code, gender, country_code,
-          verified, created_at, status, coin, business_plan, under_ref,
-          profile_image, profile_image_type
-       FROM sign_up 
-       WHERE id = $1`,
-      [id]
-    );
+  `SELECT id, full_name, email, phone_number, dob, reference_code, gender,
+   country_code, verified, created_at, status, coin, balance,
+   business_plan, under_ref, profile_image, profile_image_type,
+   first_plan_date, day_count, payment_status, trust
+   FROM sign_up 
+   WHERE id = $1`,
+  [id]
+);
+
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: "User not found" });

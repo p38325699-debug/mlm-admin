@@ -1,19 +1,26 @@
-// 🟩 REPLACE contents of routes/planRoutes.js WITH THIS
+// backend/routes/planRoutes.js
+
 const express = require("express");
 const router = express.Router();
 const pool = require("../config/db");
 const plans = require("../utils/plans");
+const distributeMaintenance = require("../utils/maintenanceDistributor");
 
 // Helper: check same-day
 const hasSameDayRequest = async (userId, plan) => {
   const todayStart = new Date();
-  todayStart.setHours(0,0,0,0);
+  todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date();
-  todayEnd.setHours(23,59,59,999);
+  todayEnd.setHours(23, 59, 59, 999);
 
   const q = `SELECT id FROM payment_uploads WHERE user_id = $1 AND plan = $2 AND payment_date BETWEEN $3 AND $4 LIMIT 1`;
 
-  const r = await pool.query(q, [userId, plan, todayStart.toISOString(), todayEnd.toISOString()]);
+  const r = await pool.query(q, [
+    userId,
+    plan,
+    todayStart.toISOString(),
+    todayEnd.toISOString(),
+  ]);
   return r.rows.length > 0 ? r.rows[0].id : null;
 };
 
@@ -40,12 +47,17 @@ router.post("/upgrade/:userId", async (req, res) => {
     );
 
     if (userRes.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     const { under_ref, full_name } = userRes.rows[0];
     if (!under_ref) {
-      return res.json({ success: true, message: "Plan upgraded. No referrer." });
+      return res.json({
+        success: true,
+        message: "Plan upgraded. No referrer.",
+      });
     }
 
     // 3. Find referrer by reference_code
@@ -55,19 +67,22 @@ router.post("/upgrade/:userId", async (req, res) => {
     );
 
     if (refRes.rows.length === 0) {
-      return res.json({ success: true, message: "Plan upgraded. Referrer not found." });
+      return res.json({
+        success: true,
+        message: "Plan upgraded. Referrer not found.",
+      });
     }
 
     const referrer = refRes.rows[0];
 
     // 4. Calculate commission
-    const bonus = plans[newPlan] * 0.10;
+    const bonus = plans[newPlan] * 0.1;
 
-    // 5. Add to referrer’s coin balance
-    await pool.query(
-      "UPDATE sign_up SET coin = coin + $1 WHERE id = $2",
-      [bonus, referrer.id]
-    );
+    // 5. Add to referrer's coin balance
+    await pool.query("UPDATE sign_up SET coin = coin + $1 WHERE id = $2", [
+      bonus,
+      referrer.id,
+    ]);
 
     // 6. Insert notification
     await pool.query(
@@ -88,15 +103,20 @@ router.post("/upgrade/:userId", async (req, res) => {
   }
 });
 
-// --- GET refcount + direct members’ business_plan ---
+// --- GET refcount + direct members' business_plan ---
 router.get("/refcount/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
 
-    // find this user’s reference_code
-    const self = await pool.query("SELECT reference_code FROM sign_up WHERE id = $1", [userId]);
+    // find this user's reference_code
+    const self = await pool.query(
+      "SELECT reference_code FROM sign_up WHERE id = $1",
+      [userId]
+    );
     if (self.rows.length === 0)
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     const refCode = self.rows[0].reference_code;
 
@@ -109,7 +129,7 @@ router.get("/refcount/:userId", async (req, res) => {
     res.json({
       success: true,
       reference_count: direct.rows.length,
-      referrals: direct.rows, // includes each referral’s plan
+      referrals: direct.rows, // includes each referral's plan
     });
   } catch (err) {
     console.error("Error fetching reference details:", err.message);
@@ -117,18 +137,24 @@ router.get("/refcount/:userId", async (req, res) => {
   }
 });
 
-
 // --- VALIDATE eligibility (business_plan + count) ---
 router.post("/validate", async (req, res) => {
   try {
     const { userId, newPlan } = req.body;
     if (!userId || !newPlan)
-      return res.status(400).json({ success: false, message: "Missing params" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing params" });
 
     // find reference_code
-    const self = await pool.query("SELECT reference_code FROM sign_up WHERE id = $1", [userId]);
+    const self = await pool.query(
+      "SELECT reference_code FROM sign_up WHERE id = $1",
+      [userId]
+    );
     if (self.rows.length === 0)
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     const refCode = self.rows[0].reference_code;
 
@@ -139,7 +165,7 @@ router.post("/validate", async (req, res) => {
     );
 
     const total = direct.rows.length;
-    const plans = direct.rows.map((r) => r.business_plan);
+    const planList = direct.rows.map((r) => r.business_plan);
 
     // required plan type & count
     const rules = {
@@ -158,11 +184,15 @@ router.post("/validate", async (req, res) => {
 
     const rule = rules[newPlan];
     if (!rule)
-      return res.status(400).json({ success: false, message: "Invalid plan" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid plan" });
 
     // count how many direct members match the required plan
-    const matching = plans.filter((p) =>
-      p.toLowerCase().replace(/\s+/g, "") === rule.need.toLowerCase().replace(/\s+/g, "")
+    const matching = planList.filter(
+      (p) =>
+        p.toLowerCase().replace(/\s+/g, "") ===
+        rule.need.toLowerCase().replace(/\s+/g, "")
     ).length;
 
     if (matching >= rule.min) {
@@ -180,7 +210,6 @@ router.post("/validate", async (req, res) => {
   }
 });
 
-
 router.get("/status/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
@@ -191,7 +220,9 @@ router.get("/status/:userId", async (req, res) => {
       [userId]
     );
     if (user.rows.length === 0)
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     const { business_plan, day_count } = user.rows[0];
 
@@ -219,16 +250,23 @@ router.get("/status/:userId", async (req, res) => {
   }
 });
 
-
-
-
 // --- GET day_count for current plan ---
 router.get("/daycount/:userId", async (req, res) => {
   try {
     const { userId } = req.params;
-    const r = await pool.query("SELECT day_count, business_plan FROM sign_up WHERE id = $1", [userId]);
-    if (r.rows.length === 0) return res.status(404).json({ success: false, message: "User not found" });
-    return res.json({ success: true, day_count: r.rows[0].day_count ?? 0, business_plan: r.rows[0].business_plan });
+    const r = await pool.query(
+      "SELECT day_count, business_plan FROM sign_up WHERE id = $1",
+      [userId]
+    );
+    if (r.rows.length === 0)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    return res.json({
+      success: true,
+      day_count: r.rows[0].day_count ?? 0,
+      business_plan: r.rows[0].business_plan,
+    });
   } catch (err) {
     console.error("Daycount error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
@@ -240,7 +278,11 @@ router.get("/check-request/:userId/:plan", async (req, res) => {
   try {
     const { userId, plan } = req.params;
     const existsId = await hasSameDayRequest(userId, plan);
-    return res.json({ success: true, exists: !!existsId, request_id: existsId || null });
+    return res.json({
+      success: true,
+      exists: !!existsId,
+      request_id: existsId || null,
+    });
   } catch (err) {
     console.error("check-request error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
@@ -265,7 +307,9 @@ router.post("/upgrade", async (req, res) => {
     const { userId, newPlan, amount, confirm } = req.body;
 
     if (!userId || !newPlan || !amount)
-      return res.status(400).json({ success: false, message: "All fields are required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "All fields are required" });
 
     // 🟨 Step 1: Ask for confirmation
     if (!confirm) {
@@ -282,37 +326,53 @@ router.post("/upgrade", async (req, res) => {
       [userId]
     );
     if (userRes.rowCount === 0)
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
-    const { coin, business_plan: prevPlan, under_ref, full_name, first_plan_date } = userRes.rows[0];
+    const {
+      coin,
+      business_plan: prevPlan,
+      under_ref,
+      full_name,
+      first_plan_date,
+    } = userRes.rows[0];
+
+    // ❌ Block rebuy of same active plan
+if (prevPlan && prevPlan.toLowerCase().trim() === newPlan.toLowerCase().trim()) {
+  return res.status(400).json({
+    success: false,
+    message: `You already have the ${newPlan} plan active. Cannot rebuy same plan.`,
+  });
+}
+
 
     // 🟩 Step 3: Check if this is first plan purchase
-    const isFirstPlanPurchase = (prevPlan === 'Bronze' && !first_plan_date);
-    
-    // 🟩 Step 4: Calculate total deduction amount
-    const totalDeductionAmount = isFirstPlanPurchase ? 
-      amount + 6 : // Plan amount + $6 app cost
-      amount;      // Only plan amount
+    const isFirstPlanPurchase = prevPlan === "Bronze" && !first_plan_date;
 
-    // 🟥 Step 5: Check balance with TOTAL amount (including $6 if first purchase)
+    // 🟩 Step 4: Calculate total deduction amount with 10% app maintenance
+    const maintenanceFee = amount * 0.1;
+    const totalDeductionAmount = amount + maintenanceFee;
+
+    // 🟥 Step 5: Check balance with TOTAL amount
     if (coin < totalDeductionAmount) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Insufficient wallet balance. Need $${totalDeductionAmount} but have $${coin}.` 
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient wallet balance. Need $${totalDeductionAmount} but have $${coin}.`,
       });
     }
 
     // 🟩 Step 6: Deduct TOTAL amount + upgrade plan
     const newBalance = coin - totalDeductionAmount;
-    
+
     if (isFirstPlanPurchase) {
-      // ✅ First time plan purchase - set first_plan_date and deduct plan + $6
+      // ✅ First time plan purchase - set first_plan_date and deduct plan + 10% maintenance fee
       await pool.query(
         "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45, first_plan_date = NOW() WHERE id = $3",
         [newBalance, newPlan, userId]
       );
     } else {
-      // ✅ Regular upgrade - only deduct plan amount
+      // ✅ Regular upgrade - deduct plan amount + maintenance
       await pool.query(
         "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45 WHERE id = $3",
         [newBalance, newPlan, userId]
@@ -326,14 +386,12 @@ router.post("/upgrade", async (req, res) => {
     );
 
     // 🟩 Step 8: Add notification for user
-    const userMsg = isFirstPlanPurchase ?
-      `Your plan upgraded from ${prevPlan} to ${newPlan}. $6 app cost included.` :
-      `Your plan upgraded from ${prevPlan} to ${newPlan}.`;
-    
-    await pool.query(`INSERT INTO notifications (user_id, message) VALUES ($1, $2)`, [
-      userId,
-      userMsg,
-    ]);
+    const userMsg = `Your plan upgraded from ${prevPlan} to ${newPlan}. 10% app maintenance fee included.`;
+
+    await pool.query(
+      `INSERT INTO notifications (user_id, message) VALUES ($1, $2)`,
+      [userId, userMsg]
+    );
 
     // 🟩 Step 9: Notify referrer if exists
     if (under_ref) {
@@ -344,20 +402,26 @@ router.post("/upgrade", async (req, res) => {
       if (refRes.rowCount > 0) {
         const refId = refRes.rows[0].id;
         const refMsg = `${full_name} upgraded from ${prevPlan} to ${newPlan}.`;
-        await pool.query(`INSERT INTO notifications (user_id, message) VALUES ($1, $2)`, [
-          refId,
-          refMsg,
-        ]);
+        await pool.query(
+          `INSERT INTO notifications (user_id, message) VALUES ($1, $2)`,
+          [refId, refMsg]
+        );
       }
+    }
+
+    // 🟩 Step 10: Distribute commissions (10-level + direct)
+    try {
+      await distributeMaintenance(userId, amount, totalDeductionAmount);
+      console.log(`✅ Maintenance distribution triggered for User ${userId}`);
+    } catch (err) {
+      console.error("❌ Failed to distribute maintenance:", err.message);
     }
 
     res.json({
       success: true,
-      message: isFirstPlanPurchase ?
-        `Plan upgraded to ${newPlan}. Wallet deducted $${totalDeductionAmount} (plan + $6 app cost).` :
-        `Plan upgraded to ${newPlan}. Wallet deducted $${totalDeductionAmount}.`,
+      message: `Plan upgraded to ${newPlan}. Wallet deducted $${totalDeductionAmount} (includes 10% app maintenance).`,
       isFirstPlanPurchase: isFirstPlanPurchase,
-      deductedAmount: totalDeductionAmount // Send back actual deducted amount
+      deductedAmount: totalDeductionAmount, // Send back actual deducted amount
     });
   } catch (err) {
     console.error("💥 Plan upgrade error:", err.message);
@@ -372,7 +436,10 @@ router.put("/update-due/:id", async (req, res) => {
     const { due } = req.body; // expects true/false
 
     // ✅ Step 1: Update due status in payment_uploads
-    await pool.query("UPDATE payment_uploads SET due = $1 WHERE id = $2", [due, id]);
+    await pool.query("UPDATE payment_uploads SET due = $1 WHERE id = $2", [
+      due,
+      id,
+    ]);
 
     // ✅ Step 2: Fetch user info for this payment
     const payRes = await pool.query(
@@ -380,14 +447,20 @@ router.put("/update-due/:id", async (req, res) => {
       [id]
     );
     if (payRes.rows.length === 0)
-      return res.status(404).json({ success: false, message: "Payment not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Payment not found" });
 
     const { user_id, plan } = payRes.rows[0];
 
     // ✅ Step 3: Get user email (for response & updates)
-    const userRes = await pool.query("SELECT email FROM sign_up WHERE id = $1", [user_id]);
+    const userRes = await pool.query("SELECT email FROM sign_up WHERE id = $1", [
+      user_id,
+    ]);
     if (userRes.rows.length === 0)
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     const email = userRes.rows[0].email;
 
@@ -401,7 +474,9 @@ router.put("/update-due/:id", async (req, res) => {
 
     res.json({
       success: true,
-      message: `Due status updated${due ? " and plan activated" : ""} successfully`,
+      message: `Due status updated${
+        due ? " and plan activated" : ""
+      } successfully`,
       email,
       plan,
     });
@@ -410,7 +485,6 @@ router.put("/update-due/:id", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
-
 
 router.get("/all-payments", async (req, res) => {
   try {
@@ -422,9 +496,7 @@ router.get("/all-payments", async (req, res) => {
         s.email,               -- ✅ added
         p.plan,
         p.amount,
-        
         p.payment_date
-
       FROM payment_uploads p
       JOIN sign_up s ON p.user_id = s.id
       ORDER BY p.payment_date DESC
