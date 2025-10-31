@@ -75,7 +75,7 @@ exports.getQuizWithVideos = async (req, res) => {
     // Quizzes query
     const quizQuery = isAdmin
       ? "SELECT * FROM quizzes ORDER BY id ASC" // all quizzes
-      : "SELECT * FROM quizzes ORDER BY RANDOM() LIMIT 5"; // app limit
+      : "SELECT * FROM quizzes ORDER BY RANDOM() LIMIT 8"; // app limit
 
     // Videos query
     const videoQuery = isAdmin
