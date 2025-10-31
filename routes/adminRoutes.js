@@ -21,6 +21,7 @@ router.get("/all-users", async (req, res) => {
   }
 });
 
+
 // Update user wallet
 router.put("/users/:id/wallet", async (req, res) => {
   const { id } = req.params;
@@ -84,5 +85,20 @@ router.delete("/users/:id", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
+
+// ✅ Fetch all plan purchases
+router.get("/plan-purchases", async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT id, user_id, email, plan, buy_date FROM plan_purchases ORDER BY buy_date DESC"
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error("Error fetching plan purchases:", err);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
 
 module.exports = router;

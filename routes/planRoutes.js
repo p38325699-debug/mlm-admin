@@ -302,6 +302,134 @@ router.delete("/request/:id", async (req, res) => {
 });
 
 // --- WALLET UPGRADE WITH PERMISSION ---
+// router.post("/upgrade", async (req, res) => {
+//   try {
+//     const { userId, newPlan, amount, confirm } = req.body;
+
+//     if (!userId || !newPlan || !amount)
+//       return res
+//         .status(400)
+//         .json({ success: false, message: "All fields are required" });
+
+//     // 🟨 Step 1: Ask for confirmation
+//     if (!confirm) {
+//       return res.status(200).json({
+//         success: false,
+//         askPermission: true,
+//         message: "Need permission to proceed with wallet deduction",
+//       });
+//     }
+
+//     // 🟩 Step 2: Fetch user info
+//     const userRes = await pool.query(
+//       "SELECT coin, business_plan, under_ref, full_name, first_plan_date FROM sign_up WHERE id = $1",
+//       [userId]
+//     );
+//     if (userRes.rowCount === 0)
+//       return res
+//         .status(404)
+//         .json({ success: false, message: "User not found" });
+
+//     const {
+//       coin,
+//       business_plan: prevPlan,
+//       under_ref,
+//       full_name,
+//       first_plan_date,
+//     } = userRes.rows[0];
+
+//     // ❌ Block rebuy of same active plan
+// if (prevPlan && prevPlan.toLowerCase().trim() === newPlan.toLowerCase().trim()) {
+//   return res.status(400).json({
+//     success: false,
+//     message: `You already have the ${newPlan} plan active. Cannot rebuy same plan.`,
+//   });
+// }
+
+
+//     // 🟩 Step 3: Check if this is first plan purchase
+//     const isFirstPlanPurchase = prevPlan === "Bronze" && !first_plan_date;
+
+//     // 🟩 Step 4: Calculate total deduction amount with 10% app maintenance
+//     const maintenanceFee = amount * 0.1;
+//     const totalDeductionAmount = amount + maintenanceFee;
+
+//     // 🟥 Step 5: Check balance with TOTAL amount
+//     if (coin < totalDeductionAmount) {
+//       return res.status(400).json({
+//         success: false,
+//         message: `Insufficient wallet balance. Need $${totalDeductionAmount} but have $${coin}.`,
+//       });
+//     }
+
+//     // 🟩 Step 6: Deduct TOTAL amount + upgrade plan
+//     const newBalance = coin - totalDeductionAmount;
+
+//     if (isFirstPlanPurchase) {
+//       // ✅ First time plan purchase - set first_plan_date and deduct plan + 10% maintenance fee
+//       await pool.query(
+//         "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45, first_plan_date = NOW() WHERE id = $3",
+//         [newBalance, newPlan, userId]
+//       );
+//     } else {
+//       // ✅ Regular upgrade - deduct plan amount + maintenance
+//       await pool.query(
+//         "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45 WHERE id = $3",
+//         [newBalance, newPlan, userId]
+//       );
+//     }
+
+//     // 🟩 Step 7: Insert payment record with ACTUAL deducted amount
+//     await pool.query(
+//       `INSERT INTO payment_uploads (user_id, plan, amount) VALUES ($1, $2, $3)`,
+//       [userId, newPlan, totalDeductionAmount] // Store the actual deducted amount
+//     );
+
+//     // 🟩 Step 8: Add notification for user
+//     const userMsg = `Your plan upgraded from ${prevPlan} to ${newPlan}. 10% app maintenance fee included.`;
+
+//     await pool.query(
+//       `INSERT INTO notifications (user_id, message) VALUES ($1, $2)`,
+//       [userId, userMsg]
+//     );
+
+//     // 🟩 Step 9: Notify referrer if exists
+//     if (under_ref) {
+//       const refRes = await pool.query(
+//         "SELECT id FROM sign_up WHERE reference_code = $1",
+//         [under_ref]
+//       );
+//       if (refRes.rowCount > 0) {
+//         const refId = refRes.rows[0].id;
+//         const refMsg = `${full_name} upgraded from ${prevPlan} to ${newPlan}.`;
+//         await pool.query(
+//           `INSERT INTO notifications (user_id, message) VALUES ($1, $2)`,
+//           [refId, refMsg]
+//         );
+//       }
+//     }
+
+//     // 🟩 Step 10: Distribute commissions (10-level + direct)
+//     try {
+//       await distributeMaintenance(userId, amount, totalDeductionAmount);
+//       console.log(`✅ Maintenance distribution triggered for User ${userId}`);
+//     } catch (err) {
+//       console.error("❌ Failed to distribute maintenance:", err.message);
+//     }
+
+//     res.json({
+//       success: true,
+//       message: `Plan upgraded to ${newPlan}. Wallet deducted $${totalDeductionAmount} (includes 10% app maintenance).`,
+//       isFirstPlanPurchase: isFirstPlanPurchase,
+//       deductedAmount: totalDeductionAmount, // Send back actual deducted amount
+//     });
+//   } catch (err) {
+//     console.error("💥 Plan upgrade error:", err.message);
+//     res.status(500).json({ success: false, message: "Server error" });
+//   }
+// });
+
+// --- WALLET UPGRADE WITH PERMISSION ---
 router.post("/upgrade", async (req, res) => {
   try {
     const { userId, newPlan, amount, confirm } = req.body;
@@ -322,7 +450,7 @@ router.post("/upgrade", async (req, res) => {
 
     // 🟩 Step 2: Fetch user info
     const userRes = await pool.query(
-      "SELECT coin, business_plan, under_ref, full_name, first_plan_date FROM sign_up WHERE id = $1",
+      "SELECT coin, business_plan, under_ref, full_name, first_plan_date, email FROM sign_up WHERE id = $1",
       [userId]
     );
     if (userRes.rowCount === 0)
@@ -336,16 +464,19 @@ router.post("/upgrade", async (req, res) => {
       under_ref,
       full_name,
       first_plan_date,
+      email,
     } = userRes.rows[0];
 
     // ❌ Block rebuy of same active plan
-if (prevPlan && prevPlan.toLowerCase().trim() === newPlan.toLowerCase().trim()) {
-  return res.status(400).json({
-    success: false,
-    message: `You already have the ${newPlan} plan active. Cannot rebuy same plan.`,
-  });
-}
-
+    if (
+      prevPlan &&
+      prevPlan.toLowerCase().trim() === newPlan.toLowerCase().trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: `You already have the ${newPlan} plan active. Cannot rebuy same plan.`,
+      });
+    }
 
     // 🟩 Step 3: Check if this is first plan purchase
     const isFirstPlanPurchase = prevPlan === "Bronze" && !first_plan_date;
@@ -366,28 +497,25 @@ if (prevPlan && prevPlan.toLowerCase().trim() === newPlan.toLowerCase().trim()) 
     const newBalance = coin - totalDeductionAmount;
 
     if (isFirstPlanPurchase) {
-      // ✅ First time plan purchase - set first_plan_date and deduct plan + 10% maintenance fee
       await pool.query(
         "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45, first_plan_date = NOW() WHERE id = $3",
         [newBalance, newPlan, userId]
       );
     } else {
-      // ✅ Regular upgrade - deduct plan amount + maintenance
       await pool.query(
         "UPDATE sign_up SET coin = $1, business_plan = $2, day_count = 45 WHERE id = $3",
         [newBalance, newPlan, userId]
       );
     }
 
-    // 🟩 Step 7: Insert payment record with ACTUAL deducted amount
+    // 🟩 Step 7: Insert payment record
     await pool.query(
       `INSERT INTO payment_uploads (user_id, plan, amount) VALUES ($1, $2, $3)`,
-      [userId, newPlan, totalDeductionAmount] // Store the actual deducted amount
+      [userId, newPlan, totalDeductionAmount]
     );
 
     // 🟩 Step 8: Add notification for user
     const userMsg = `Your plan upgraded from ${prevPlan} to ${newPlan}. 10% app maintenance fee included.`;
-
     await pool.query(
       `INSERT INTO notifications (user_id, message) VALUES ($1, $2)`,
       [userId, userMsg]
@@ -417,17 +545,31 @@ if (prevPlan && prevPlan.toLowerCase().trim() === newPlan.toLowerCase().trim()) 
       console.error("❌ Failed to distribute maintenance:", err.message);
     }
 
+    // 🟩 Step 11: Log this plan purchase in plan_purchases
+    try {
+      await pool.query(
+        `INSERT INTO plan_purchases (user_id, email, plan, buy_date)
+         VALUES ($1, $2, $3, NOW())`,
+        [userId, email, newPlan]
+      );
+      console.log(`✅ Logged plan purchase for user ${userId}: ${newPlan}`);
+    } catch (err) {
+      console.error("⚠️ Failed to insert plan_purchases record:", err.message);
+    }
+
+    // 🟩 Step 12: Final response
     res.json({
       success: true,
       message: `Plan upgraded to ${newPlan}. Wallet deducted $${totalDeductionAmount} (includes 10% app maintenance).`,
-      isFirstPlanPurchase: isFirstPlanPurchase,
-      deductedAmount: totalDeductionAmount, // Send back actual deducted amount
+      isFirstPlanPurchase,
+      deductedAmount: totalDeductionAmount,
     });
   } catch (err) {
     console.error("💥 Plan upgrade error:", err.message);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 
 // --- ADMIN: Update Due Status ---
 router.put("/update-due/:id", async (req, res) => {
