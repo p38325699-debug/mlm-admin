@@ -4,12 +4,74 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 
+const app = express();
+
+/* -------------------------------------------------------------------------- */
+/* 🟢 CORS Configuration (Fully Fixed for Render + Browser + SW)              */
+/* -------------------------------------------------------------------------- */
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://knowo.world",
+  "https://www.knowo.world",
+  "https://mlm-admin.onrender.com"
+];
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header("Access-Control-Allow-Origin", origin || "*");
+  }
+
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+
+  // ✅ Handle preflight (OPTIONS) requests instantly
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+
+  next();
+});
+
+/* -------------------------------------------------------------------------- */
+/* 🟠 Detect browser requests (optional helper middleware)                    */
+/* -------------------------------------------------------------------------- */
+app.use((req, res, next) => {
+  const userAgent = req.headers["user-agent"] || "";
+  req.isBrowserRequest = /mozilla|chrome|safari|firefox|edge|opera/i.test(
+    userAgent.toLowerCase()
+  );
+  next();
+});
+
+/* -------------------------------------------------------------------------- */
+/* 🟣 Body Parsing + Static Files                                             */
+/* -------------------------------------------------------------------------- */
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/videos", express.static(path.join(__dirname, "uploads/videos")));
+
+/* -------------------------------------------------------------------------- */
+/* 🔵 Request Logger                                                          */
+/* -------------------------------------------------------------------------- */
+app.use((req, res, next) => {
+  console.log(`📩 Incoming: ${req.method} ${req.url}`);
+  next();
+});
+
+/* -------------------------------------------------------------------------- */
+/* 🟡 Import Routes                                                           */
+/* -------------------------------------------------------------------------- */
 const authRoutes = require("./routes/authRoutes");
 const otpRoutes = require("./routes/otpRoutes");
 const adminRoutes = require("./routes/adminRoutes");
 const homeDataRoutes = require("./routes/homeDataRoutes");
 const quizRoutes = require("./routes/quizRoutes");
-const userRoutes = require("./routes/userRoutes"); 
+const userRoutes = require("./routes/userRoutes");
 const referralRoutes = require("./routes/referralRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const coinRoutes = require("./routes/coinRoutes");
@@ -17,7 +79,7 @@ const planRoutes = require("./routes/planRoutes");
 const notificationRoutes = require("./routes/notificationRoutes");
 const upiRoutes = require("./routes/upiRoutes");
 const walletRoutes = require("./routes/walletRoutes");
-const dashboardRoutes = require("./routes/dashboard"); 
+const dashboardRoutes = require("./routes/dashboard");
 const cryptoRoutes = require("./routes/cryptoRoutes");
 const contactRoutes = require("./routes/contactRoutes");
 const mpinRoutes = require("./routes/mpinRoutes");
@@ -25,57 +87,9 @@ const cronRoutes = require("./routes/cronRoutes");
 const rewardRoutes = require("./routes/rewardRoutes");
 const goldRewardsRoutes = require("./routes/goldRewards");
 
-const app = express();
-  
-// Middleware
-// app.use(cors());
-
-app.use(cors({
-  origin: (origin, callback) => {
-    const allowedOrigins = [
-      'http://localhost:5173',
-      'https://knowo.world',
-      'https://www.knowo.world',
-      'https://mlm-admin.onrender.com'
-    ];
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error(`Not allowed by CORS: ${origin}`));
-    }
-  },
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true,
-}));
-
-
-// Add this middleware in server.js after CORS setup
-app.use((req, res, next) => {
-  const userAgent = req.headers['user-agent'] || '';
-  const isBrowser = /mozilla|chrome|safari|firefox|edge|opera/i.test(userAgent.toLowerCase());
-  
-  req.isBrowserRequest = isBrowser;
-  next();
-});
-
-// ✅ increase payload limit to handle large images
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
-
-// app.use(express.json());
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-app.use("/videos", express.static(path.join(__dirname, "uploads/videos")));
-
-
-// Log every incoming request
-app.use((req, res, next) => {
-  console.log(`📩 Incoming: ${req.method} ${req.url}`);
-  next();
-});
-
-
-// Routes
+/* -------------------------------------------------------------------------- */
+/* 🧭 Mount Routes                                                            */
+/* -------------------------------------------------------------------------- */
 app.use("/api/auth", authRoutes);
 app.use("/api/otp", otpRoutes);
 app.use("/api/admin", adminRoutes);
@@ -93,33 +107,35 @@ app.use("/api", cryptoRoutes);
 app.use("/api", contactRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/users", mpinRoutes);
-app.use("/api/cron", cronRoutes); 
+app.use("/api/cron", cronRoutes);
 app.use("/api", rewardRoutes);
 app.use("/api/gold-rewards", goldRewardsRoutes);
 
-// Start server
-const PORT = process.env.PORT || 5000;
-
-// Start background jobs
+/* -------------------------------------------------------------------------- */
+/* 🕒 Cron Jobs                                                               */
+/* -------------------------------------------------------------------------- */
 require("./cronJobs/dayCountDecrement");
-require("./cronJobs/cleanup"); 
+require("./cronJobs/cleanup");
 require("./cronJobs/dailyQuizInit");
-require("./cronJobs/monthlyDeduction");      
-require("./cronJobs/maintenanceReminder"); 
-require("./cronJobs/dailyCheck.js");
-require("./cronJobs/planDeduction"); 
+require("./cronJobs/monthlyDeduction");
+require("./cronJobs/maintenanceReminder");
+require("./cronJobs/dailyCheck");
+require("./cronJobs/planDeduction");
 require("./cronJobs/unverifyIfNoMpin");
-// backend/server.js
-require("./utils/cronJobs"); // Add this near the top (after dotenv)
+require("./utils/cronJobs");
 
+/* -------------------------------------------------------------------------- */
+/* 🚀 Start Server                                                            */
+/* -------------------------------------------------------------------------- */
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
+/* -------------------------------------------------------------------------- */
+/* 🧠 Root Health Check Endpoint                                              */
+/* -------------------------------------------------------------------------- */
 app.get("/", (req, res) => {
   res.json({ success: true, message: "Backend is running 🚀" });
 });
-
- 
-
